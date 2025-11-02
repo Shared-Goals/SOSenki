@@ -707,6 +707,6 @@ sosenki/
 SOSenki
 Copyright 2025 Shared Goals
 
-This product includes software developed by [Shared Goals](https://github.com/Shared-Goals) and its contributors.
+This product includes software developed by [Shared Goals](https://github.com/Shared-Goals/SOSenki) and its contributors.
 
 Licensed under the Apache License, Version 2.0 (the "License")
