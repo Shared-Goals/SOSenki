@@ -84,7 +84,7 @@ Design choices MUST favor simplicity and YAGNI; avoid premature generalization.
 - Pull requests MUST reference a spec and include the test plan. PRs MUST be reviewed by at least
   one maintainer and pass CI (lint, tests, spec-kit checks) before merge.
 - Linting/formatting: backend uses `black` and `flake8`; frontend uses `prettier` and `eslint` (see
-  repo docs). Specs MUST pass `uv run spec-kit check` when applicable.
+  repo docs).
 
 ## Governance
 

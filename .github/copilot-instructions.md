@@ -12,7 +12,6 @@ This repo implements SOSenki — a Telegram Mini App built with a Python/FastAPI
   - Backend tests: run from project root or `backend/` — prefer `uv run pytest` if `uv` is installed, otherwise `python -m pytest backend/tests/`.
   - Formatting & linting (backend): `black .` and `flake8 app/` (run from `backend/`).
   - Frontend checks: `prettier --write src/` and `eslint src/` (run from `frontend/`).
-  - Specs (Specification-Driven Development): `uv run spec-kit check` / `uv run spec-kit report` — specs live in `specs/` and drive feature implementation.
 
 - Project conventions to follow
   - Spec-first: Implement features only when corresponding spec exists under `specs/` (see `specs/core` and `specs/features`).
