@@ -2,6 +2,9 @@ openapi: 3.0.3
 info:
   title: SOSenki — Seamless Telegram Auth (feature 001) API
   version: 0.1.0
+  contact:
+    name: Shared Goals Dev Team
+    email: dev@sosenki.example
   description: Minimal contract for Mini App auth, request creation and admin actions.
 servers:
   - url: http://localhost:8000
@@ -113,9 +116,10 @@ components:
         user:
           $ref: '#/components/schemas/SOSenkiUser'
         request_form:
+          description: |
+            Present when the telegram user is not linked — provides fields to present in the UI
           type: object
           nullable: true
-          description: Present when the telegram user is not linked — provides fields to present in the UI
 
     RequestCreate:
       type: object

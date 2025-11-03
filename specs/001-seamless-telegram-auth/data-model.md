@@ -1,41 +1,43 @@
 # Data model for 001-seamless-telegram-auth
 
-Entities
+## TelegramUserCandidate
 
-1) TelegramUserCandidate
+Description: A lightweight record created when an unlinked Telegram user requests access via the Mini App.
 
-- Description: A lightweight record created when an unlinked Telegram user requests access via the Mini App.
-- Fields:
-  - id: UUID (PK)
-  - telegram_id: BIGINT (unique, indexed) — Telegram user id (from initData)
-  - telegram_username: TEXT (nullable)
-  - first_name: TEXT (nullable)
-  - last_name: TEXT (nullable)
-  - photo_url: TEXT (nullable)
-  - note: TEXT (nullable) — short free-text provided by the user during request
-  - status: ENUM("pending","cancelled","processed") — initial: "pending"
-  - created_at: TIMESTAMP UTC
-  - updated_at: TIMESTAMP UTC
+Fields:
 
-1) SOSenkiUser (existing project user model — extended view)
+- id: UUID (PK)
+- telegram_id: BIGINT (unique, indexed) — Telegram user id (from initData)
+- telegram_username: TEXT (nullable)
+- first_name: TEXT (nullable)
+- last_name: TEXT (nullable)
+- photo_url: TEXT (nullable)
+- note: TEXT (nullable) — short free-text provided by the user during request
+- status: ENUM("pending","cancelled","processed") — initial: "pending"
+- created_at: TIMESTAMP UTC
+- updated_at: TIMESTAMP UTC
 
-- Note: the project already has a user model. For onboarding we require the following fields to be present or added if missing:
-  - id: UUID (PK)
-  - email: TEXT (nullable)
-  - telegram_id: BIGINT (nullable, unique) — when present, used to link to Telegram identity
-  - roles: ARRAY or relation (contains "Administrator", "User", etc.)
-  - created_at, updated_at
+## SOSenkiUser (existing project user model — extended view)
 
-1) AdminAction (audit log for admin decisions)
+Note: the project already has a user model. For onboarding we require the following fields to be present or added if missing:
 
-- Fields:
-  - id: UUID (PK)
-  - request_id: FK -> TelegramUserCandidate.id
-  - admin_user_id: FK -> SOSenkiUser.id (must have Administrator role)
-  - action: ENUM("accept","reject")
-  - payload: JSONB (for accept: assigned role, created user id etc.)
-  - comment: TEXT (nullable)
-  - created_at: TIMESTAMP UTC
+- id: UUID (PK)
+- email: TEXT (nullable)
+- telegram_id: BIGINT (nullable, unique) — when present, used to link to Telegram identity
+- roles: ARRAY or relation (contains "Administrator", "User", etc.)
+- created_at, updated_at
+
+## AdminAction (audit log for admin decisions)
+
+Fields:
+
+- id: UUID (PK)
+- request_id: FK -> TelegramUserCandidate.id
+- admin_user_id: FK -> SOSenkiUser.id (must have Administrator role)
+- action: ENUM("accept","reject")
+- payload: JSONB (for accept: assigned role, created user id etc.)
+- comment: TEXT (nullable)
+- created_at: TIMESTAMP UTC
 
 Validation & constraints
 

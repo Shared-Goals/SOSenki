@@ -11,12 +11,16 @@
         ".specify/scripts/powershell/": true
     },
     "cSpell.words": [
+        "ASGI",
         "conftest",
+        "dedup",
         "incentivized",
         "INITDATA",
         "miniapp",
         "notif",
+        "parallelizable",
         "Prereqs",
+        "Pydantic",
         "pyproject",
         "pytest",
         "sosenki",

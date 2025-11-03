@@ -12,13 +12,13 @@ Prerequisites
 
 Run locally
 
-1) Start services using docker-compose from the repo root:
+1. Start services using docker-compose from the repo root:
 
 ```bash
 docker-compose up --build
 ```
 
-1) Backend will be available at `http://localhost:8000` by default.
+1. Backend will be available at `http://localhost:8000` by default.
 
 Exercising the API
 
