@@ -1,0 +1,31 @@
+# build / packaging artifacts
+*.egg-info/
+build/
+dist/
+
+# virtualenvs
+.venv/
+venv/
+.env
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+
+# pytest
+.pytest_cache/
+
+# mypy
+.mypy_cache/
+
+# Editor directories
+.vscode/
+.idea/
+
+# logs
+*.log
+
+# OS files
+.DS_Store
+Thumbs.db

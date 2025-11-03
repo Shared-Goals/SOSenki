@@ -1,0 +1,1 @@
+"""SOSenki FastAPI backend application."""

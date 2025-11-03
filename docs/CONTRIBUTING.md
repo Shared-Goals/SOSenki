@@ -16,7 +16,20 @@
 - Используйте `black` для форматирования: `black .`
 - Используйте `flake8` для проверки: `flake8 app/`
 - Добавляйте тесты для новых функций с использованием `pytest`
-- Запустите тесты: `pytest tests/`
+- Управление зависимостями: используйте `pyproject.toml` и `uv` (не используйте `requirements.txt` для новых фич)
+   - Установите `uv` (macOS): `brew install uv`
+   - Установите зависимости для разработки и тестов:
+
+     ```bash
+     cd SOSenki
+     uv sync --group dev
+     ```
+
+   - Запуск тестов:
+
+     ```bash
+     uv run --group dev python -m pytest backend/tests/ -v
+     ```
 
 ### Фронтенд (JavaScript/Vanilla)
 
