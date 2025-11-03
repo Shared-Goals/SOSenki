@@ -1,0 +1,187 @@
+openapi: 3.0.3
+info:
+  title: SOSenki — Seamless Telegram Auth (feature 001) API
+  version: 0.1.0
+  description: Minimal contract for Mini App auth, request creation and admin actions.
+servers:
+  - url: http://localhost:8000
+
+paths:
+  /miniapp/auth:
+    post:
+      summary: Verify Telegram Web App initData and return link status
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/InitDataPayload'
+      responses:
+        '200':
+          description: Auth verified; user linked status
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthResponse'
+        '401':
+          description: Invalid or expired initData
+
+  /requests:
+    post:
+      summary: Create an access request for an unlinked Telegram user
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RequestCreate'
+      responses:
+        '201':
+          description: Request created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Request'
+        '400':
+          description: Validation error (e.g., duplicate request)
+
+  /admin/requests:
+    get:
+      summary: List pending requests (admin only)
+      parameters:
+        - in: query
+          name: status
+          schema:
+            type: string
+            enum: [pending, processed, cancelled]
+      responses:
+        '200':
+          description: List of requests
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Request'
+
+  /admin/requests/{request_id}/action:
+    post:
+      summary: Perform an admin action (accept or reject) on a request
+      parameters:
+        - in: path
+          name: request_id
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AdminAction'
+      responses:
+        '200':
+          description: Action performed
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  result:
+                    type: string
+        '400':
+          description: Bad request (validation or business rule)
+        '403':
+          description: Forbidden (not an admin)
+
+components:
+  schemas:
+    InitDataPayload:
+      type: object
+      description: Raw payload from Telegram Web App initData verification endpoint
+      properties:
+        init_data:
+          type: object
+          description: The parsed initData per Telegram docs (user, auth_date, hash)
+
+    AuthResponse:
+      type: object
+      properties:
+        linked:
+          type: boolean
+        user:
+          $ref: '#/components/schemas/SOSenkiUser'
+        request_form:
+          type: object
+          nullable: true
+          description: Present when the telegram user is not linked — provides fields to present in the UI
+
+    RequestCreate:
+      type: object
+      required: [telegram_id]
+      properties:
+        telegram_id:
+          type: integer
+          format: int64
+        first_name:
+          type: string
+        last_name:
+          type: string
+        telegram_username:
+          type: string
+        note:
+          type: string
+
+    Request:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        telegram_id:
+          type: integer
+          format: int64
+        first_name:
+          type: string
+        last_name:
+          type: string
+        telegram_username:
+          type: string
+        note:
+          type: string
+        status:
+          type: string
+          enum: [pending, processed, cancelled]
+        created_at:
+          type: string
+          format: date-time
+
+    AdminAction:
+      type: object
+      required: [action]
+      properties:
+        action:
+          type: string
+          enum: [accept, reject]
+        role:
+          type: string
+          description: Role to assign to the new SOSenki user (required when action=accept)
+        comment:
+          type: string
+
+    SOSenkiUser:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        telegram_id:
+          type: integer
+          format: int64
+        email:
+          type: string
+        roles:
+          type: array
+          items:
+            type: string

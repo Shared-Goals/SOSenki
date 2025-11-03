@@ -37,6 +37,7 @@ If anything above is unclear or you need additional examples (small patch + test
 ## Active Technologies
 - Python 3.11 (per constitution) + FastAPI (backend), python-telegram-bot or Telegram Bot API HTTP integration for bot delivery; web frontend for Mini App (static site served by backend) (001-seamless-telegram-auth)
 - PostgreSQL (existing project default) (001-seamless-telegram-auth)
+- Python 3.11 (per constitution) + FastAPI (backend), `python-telegram-bot` (bot), standard HTTP client for Telegram WebApp interactions; frontend is a lightweight static Mini App. (001-seamless-telegram-auth)
 
 ## Recent Changes
 - 001-seamless-telegram-auth: Added Python 3.11 (per constitution) + FastAPI (backend), python-telegram-bot or Telegram Bot API HTTP integration for bot delivery; web frontend for Mini App (static site served by backend)
