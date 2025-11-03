@@ -1,15 +1,33 @@
 """SOSenki FastAPI application entry point."""
 
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI
-from fastapi.staticfiles import StaticFiles
 
 from backend.app.api.routes import miniapp
+from backend.app.config import settings
+from backend.app.database import Base, engine
+from backend.app.logging import logger
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Manage application lifecycle (startup and shutdown)."""
+    # Startup: Initialize database tables
+    Base.metadata.create_all(bind=engine)
+    logger.info("Database tables initialized")
+    yield
+    # Shutdown: Cleanup if needed
+    logger.info("Application shutting down")
+
 
 app = FastAPI(
-    title="SOSenki API",
+    title=settings.api_title,
     description="Open-source Telegram Mini App for property management",
-    version="0.1.0",
+    version=settings.api_version,
+    lifespan=lifespan,
 )
+
 
 # Include routers
 app.include_router(miniapp.router)
@@ -18,6 +36,7 @@ app.include_router(miniapp.router)
 @app.get("/health")
 async def health_check():
     """Health check endpoint."""
+    logger.info("Health check called")
     return {"status": "ok"}
 
 

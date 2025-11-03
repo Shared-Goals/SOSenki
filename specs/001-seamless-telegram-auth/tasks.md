@@ -9,19 +9,19 @@ Notes:
 
 ## Phase 1: Setup (Shared Infrastructure)
 
-- [ ] T001 [P] Initialize Python project dependencies and dev tools (add FastAPI, pytest, python-telegram-bot) in `backend/pyproject.toml` (use `uv` and `uv.lock` to pin dependencies;)
-- [ ] T002 [P] Add project linting and formatting configs: `backend/pyproject.toml` (black) and `.flake8` at repo root
-- [ ] T003 [P] Create base FastAPI app entrypoint `backend/app/main.py` and ASGI startup scaffolding
-- [ ] T004 [P] Add env config helper `backend/app/config.py` and document required env vars in `.env.example`
-- [ ] T005 [P] Add database connection helper `backend/app/database.py` and register it in `backend/app/main.py`
+- [x] T001 [P] Initialize Python project dependencies and dev tools (add FastAPI, pytest, python-telegram-bot) in `backend/pyproject.toml` (use `uv` and `uv.lock` to pin dependencies;)
+- [x] T002 [P] Add project linting and formatting configs: `backend/pyproject.toml` (black) and `.flake8` at repo root
+- [x] T003 [P] Create base FastAPI app entrypoint `backend/app/main.py` and ASGI startup scaffolding
+- [x] T004 [P] Add env config helper `backend/app/config.py` and document required env vars in `.env.example`
+- [x] T005 [P] Add database connection helper `backend/app/database.py` and register it in `backend/app/main.py`
 
 ## Phase 2: Foundational (Blocking Prerequisites)
 
-- [ ] T006 Setup database migrations framework (Alembic) and add initial migration directory `backend/migrations/` (files and config)
-- [ ] T007 [P] Create base models module `backend/app/models/__init__.py` and a base `Base` SQLAlchemy metadata in `backend/app/models/base.py`
-- [ ] T008 [P] Add tests harness and folders: create `backend/tests/unit/`, `backend/tests/integration/`, `backend/tests/contract/` and `backend/tests/conftest.py`
-- [ ] T009 [P] Implement error handling and API response helpers in `backend/app/api/errors.py`
-- [ ] T010 [P] Add observability scaffolding (basic logging config) in `backend/app/logging.py`
+- [x] T006 Setup database migrations framework (Alembic) and add initial migration directory `backend/migrations/` (files and config)
+- [x] T007 [P] Create base models module `backend/app/models/__init__.py` and a base `Base` SQLAlchemy metadata in `backend/app/models/base.py`
+- [x] T008 [P] Add tests harness and folders: create `backend/tests/unit/`, `backend/tests/integration/`, `backend/tests/contract/` and `backend/tests/conftest.py`
+- [x] T009 [P] Implement error handling and API response helpers in `backend/app/api/errors.py`
+- [x] T010 [P] Add observability scaffolding (basic logging config) in `backend/app/logging.py`
 
 ## Phase 3: User Story 1 - Открытие Mini App и быстрая проверка пользователя (Priority: P1) 🎯 MVP
 
@@ -36,11 +36,11 @@ Independent test: POST `/miniapp/auth` with `init_data` → returns `linked: tru
 
 ### Implementation (US1)
 
-- [ ] T013 [P] [US1] Create `TelegramUserCandidate` model in `backend/app/models/telegram_user_candidate.py`
-- [ ] T014 [P] [US1] Add `telegram_id` column to `backend/app/models/user.py` (existing SOSenkiUser model) with unique constraint and migration file in `backend/migrations/`
-- [ ] T015 [US1] Implement `backend/app/services/telegram_auth_service.py` with function `verify_initdata(init_data: dict) -> dict` (uses Telegram hash check and timestamp rule)
-- [ ] T016 [US1] Implement API route handler `backend/app/api/routes/miniapp.py` with `POST /miniapp/auth` that calls `telegram_auth_service.verify_initdata`, queries `SOSenkiUser` by `telegram_id`, and returns the contract-shaped response
-- [ ] T017 [US1] Add request validation schemas `backend/app/schemas/miniapp.py` (Pydantic) and wire into route
+- [x] T013 [P] [US1] Create `TelegramUserCandidate` model in `backend/app/models/telegram_user_candidate.py`
+- [x] T014 [P] [US1] Add `telegram_id` column to `backend/app/models/user.py` (existing SOSenkiUser model) with unique constraint and migration file in `backend/migrations/`
+- [x] T015 [US1] Implement `backend/app/services/telegram_auth_service.py` with function `verify_initdata(init_data: dict) -> dict` (uses Telegram hash check and timestamp rule)
+- [x] T016 [US1] Implement API route handler `backend/app/api/routes/miniapp.py` with `POST /miniapp/auth` that calls `telegram_auth_service.verify_initdata`, queries `SOSenkiUser` by `telegram_id`, and returns the contract-shaped response
+- [x] T017 [US1] Add request validation schemas `backend/app/schemas/miniapp.py` (Pydantic) and wire into route
 - [ ] T018 [US1] Integration test for happy path `backend/tests/integration/test_miniapp_auth.py` (initData->existing user -> welcome) that initially fails
 - [ ] T019 [US1] Integration test for unlinked user `backend/tests/integration/test_miniapp_auth_unlinked.py` that initially fails
 

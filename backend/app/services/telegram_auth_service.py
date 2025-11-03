@@ -2,47 +2,112 @@
 
 import hashlib
 import hmac
+import json
 import time
 from typing import Optional
+from urllib.parse import parse_qs, unquote
+
+from backend.app.api.errors import InvalidInitDataError
+from backend.app.logging import logger
 
 
-def verify_initdata(init_data: str, bot_token: str, max_age_seconds: int = 120) -> Optional[dict]:
+def verify_initdata(init_data: str, bot_token: str, max_age_seconds: int = 120) -> dict:
     """
     Verify Telegram Mini App initData signature using HMAC-SHA256.
-    
-    ## Implementation TODO
-    - Parse init_data string (URL-encoded key=value pairs)
-    - Extract 'hash' parameter (HMAC-SHA256 signature)
-    - Compute HMAC-SHA256(check_string, secret_key) where:
-      - secret_key = HMAC-SHA256("WebAppData", bot_token)
-      - check_string = sorted key=value pairs (excluding 'hash')
-    - Compare computed hash with provided hash (constant-time comparison)
-    - Validate 'auth_date' is fresh (< max_age_seconds)
-    - Extract and return user data: { "telegram_id": int, "auth_date": int, ...}
-    - Raise exception or return None if validation fails
-    
-    ## Arguments
-    - init_data: URL-encoded string from Telegram WebApp
-    - bot_token: Telegram bot token (for HMAC secret derivation)
-    - max_age_seconds: Maximum age of auth_date (default 120 seconds per spec)
-    
-    ## Returns
-    - Dict with extracted user data (telegram_id, first_name, etc.) if valid
-    - None if validation fails
-    
-    ## Specification Reference
-    specs/001-seamless-telegram-auth/research.md#initData-verification
+
+    Follows Telegram's Web App authentication protocol:
+    https://core.telegram.org/bots/webapps#validating-data-received-from-the-web-app
+
+    Args:
+        init_data: URL-encoded string from Telegram WebApp
+        bot_token: Telegram bot token (for HMAC secret derivation)
+        max_age_seconds: Maximum age of auth_date in seconds
+
+    Returns:
+        Dict with extracted user data if valid (telegram_id, auth_date, etc.)
+
+    Raises:
+        InvalidInitDataError: If signature verification or timestamp validation fails
     """
-    # TODO: implement HMAC-SHA256 verification
-    # TODO: implement auth_date freshness check
-    # TODO: implement user data extraction
-    # Sample skeleton:
-    # 1. Parse init_data query string
-    # 2. Extract hash and auth_date
-    # 3. Verify hash matches HMAC-SHA256(check_string, derived_key)
-    # 4. Verify auth_date is fresh
-    # 5. Return user data dict or raise/return None
-    raise NotImplementedError("verify_initdata not yet implemented")
+    try:
+        # Parse query string while preserving percent-encoding for check_string
+        parsed = parse_qs(init_data, keep_blank_values=True)
+        
+        # Extract hash (it's in a list from parse_qs)
+        hash_value = parsed.get("hash", [None])[0]
+        if not hash_value:
+            logger.warning("initData missing hash field")
+            raise InvalidInitDataError("Missing hash field")
+
+        # Extract auth_date
+        auth_date_str = parsed.get("auth_date", [None])[0]
+        if not auth_date_str:
+            logger.warning("initData missing auth_date field")
+            raise InvalidInitDataError("Missing auth_date field")
+
+        try:
+            auth_date = int(auth_date_str)
+        except ValueError:
+            logger.warning(f"initData invalid auth_date format: {auth_date_str}")
+            raise InvalidInitDataError("Invalid auth_date format")
+
+        # Check timestamp freshness
+        current_time = int(time.time())
+        if current_time - auth_date > max_age_seconds:
+            logger.warning(f"initData expired: age={current_time - auth_date}s, max={max_age_seconds}s")
+            raise InvalidInitDataError("initData expired")
+
+        # Build check string from raw query parameters (preserving percent-encoding)
+        # Split by & and sort by key
+        check_string_parts = []
+        for pair in init_data.split("&"):
+            key, _, value = pair.partition("=")
+            if key != "hash" and key and value:
+                check_string_parts.append(pair)
+        
+        check_string_parts.sort()
+        check_string = "\n".join(check_string_parts)
+
+        # Compute HMAC-SHA256
+        secret_key = hmac.new(
+            b"WebAppData", msg=bot_token.encode(), digestmod=hashlib.sha256
+        ).digest()
+        computed_hash = hmac.new(
+            secret_key, msg=check_string.encode(), digestmod=hashlib.sha256
+        ).hexdigest()
+
+        # Constant-time comparison
+        if not hmac.compare_digest(computed_hash, hash_value):
+            logger.warning("initData signature verification failed")
+            raise InvalidInitDataError("Invalid signature")
+
+        # Extract user data
+        user_data_str = parsed.get("user", [None])[0]
+        if not user_data_str:
+            logger.warning("initData missing user field")
+            raise InvalidInitDataError("Missing user field")
+
+        user_data = json.loads(unquote(user_data_str))
+        telegram_id = user_data.get("id")
+        if not telegram_id:
+            logger.warning("initData user missing id field")
+            raise InvalidInitDataError("Missing telegram user id")
+
+        logger.info(f"initData verified for telegram_id={telegram_id}")
+        return {
+            "telegram_id": telegram_id,
+            "auth_date": auth_date,
+            "user": user_data,
+        }
+
+    except json.JSONDecodeError as e:
+        logger.error(f"Failed to parse initData JSON: {e}")
+        raise InvalidInitDataError("Invalid user data JSON")
+    except Exception as e:
+        if isinstance(e, InvalidInitDataError):
+            raise
+        logger.error(f"Unexpected error in verify_initdata: {e}")
+        raise InvalidInitDataError("Verification failed")
 
 
 def get_or_create_user(telegram_id: int, init_data_dict: dict) -> tuple[bool, dict]:

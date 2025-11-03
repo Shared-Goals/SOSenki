@@ -1,6 +1,59 @@
 """Pytest configuration and shared fixtures for backend tests."""
 import pytest
+import sys
 from typing import Generator
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
+from sqlalchemy.pool import StaticPool
+
+# Create test engine BEFORE importing app
+test_engine = create_engine(
+    "sqlite:///:memory:",
+    poolclass=StaticPool,
+    connect_args={"check_same_thread": False},
+)
+
+# Patch database module before importing app
+import backend.app.database as db_module
+original_engine = db_module.engine
+db_module.engine = test_engine
+
+# Now import the app and models
+from backend.app.database import Base, SessionLocal
+from backend.app.models import user, telegram_user_candidate, admin_action  # Import models
+from backend.app.main import app
+
+
+@pytest.fixture(scope="function")
+def test_db_session():
+    """Provide a test database session with all tables created."""
+    # Create all tables before each test
+    Base.metadata.create_all(bind=test_engine)
+    
+    TestingSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=test_engine)
+    session = TestingSessionLocal()
+    
+    # Monkey-patch the get_db dependency
+    from backend.app.database import get_db
+    
+    def override_get_db():
+        """Override get_db to use test session."""
+        # Ensure tables exist every time (in case first request initializes them)
+        Base.metadata.create_all(bind=test_engine)
+        try:
+            yield session
+        finally:
+            pass  # Don't close, let fixture handle cleanup
+    
+    app.dependency_overrides[get_db] = override_get_db
+    
+    yield session
+    
+    session.close()
+    app.dependency_overrides.clear()
+    
+    # Clean up tables after each test
+    Base.metadata.drop_all(bind=test_engine)
 
 
 @pytest.fixture
