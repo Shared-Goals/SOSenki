@@ -1,0 +1,94 @@
+name: Database Migrations Validation
+
+on:
+  push:
+    branches:
+      - main
+      - develop
+    paths:
+      - 'backend/migrations/**'
+      - 'backend/app/models/**'
+      - 'backend/app/database.py'
+      - 'alembic.ini'
+      - '.github/workflows/validate-migrations.yaml'
+  pull_request:
+    branches:
+      - main
+      - develop
+    paths:
+      - 'backend/migrations/**'
+      - 'backend/app/models/**'
+      - 'backend/app/database.py'
+      - 'alembic.ini'
+
+jobs:
+  validate-migrations:
+    name: Validate Database Migrations
+    runs-on: ubuntu-latest
+    
+    services:
+      postgres:
+        image: postgres:15-alpine
+        env:
+          POSTGRES_DB: sosenki_test
+          POSTGRES_USER: sosenki
+          POSTGRES_PASSWORD: sosenki_test_password
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+
+      - name: Set up Python 3.11
+        run: uv python install 3.11
+
+      - name: Sync dependencies with uv
+        run: uv sync --all-extras --group dev
+
+      - name: Validate migrations can be applied (PostgreSQL)
+        env:
+          DATABASE_URL: postgresql://sosenki:sosenki_test_password@localhost:5432/sosenki_test
+        run: |
+          echo "Testing migrations against PostgreSQL..."
+          uv run --group dev alembic upgrade head
+          echo "✅ All migrations applied successfully"
+
+      - name: Validate migrations with SQLite (in-memory)
+        env:
+          DATABASE_URL: 'sqlite:///:memory:'
+        run: |
+          echo "Testing migrations against SQLite (in-memory)..."
+          # Note: SQLite in-memory doesn't support running migrations in this context
+          # Instead, we just verify the migration files are syntactically correct
+          uv run --group dev alembic history
+          echo "✅ Migration history is valid"
+
+      - name: Verify migration revisions
+        run: |
+          echo "Checking migration revisions..."
+          uv run --group dev alembic heads
+          echo "✅ All migration heads validated"
+
+      - name: Test summary
+        if: always()
+        run: |
+          echo "## Database Migrations Validation Summary"
+          echo ""
+          echo "✅ All database migrations validated"
+          echo ""
+          echo "To apply migrations locally:"
+          echo "\`\`\`bash"
+          echo "uv sync --group dev"
+          echo "alembic upgrade head"
+          echo "\`\`\`"

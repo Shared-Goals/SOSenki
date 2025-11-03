@@ -33,18 +33,16 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Set up Python ${{ matrix.python-version }}
-        uses: actions/setup-python@v5
-        with:
-          python-version: ${{ matrix.python-version }}
-
       - name: Install uv
-        run: |
-          pip install --upgrade uv
+        uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+
+      - name: Set up Python ${{ matrix.python-version }}
+        run: uv python install ${{ matrix.python-version }}
 
       - name: Sync dependencies with uv
-        run: |
-          uv sync --group dev
+        run: uv sync --all-extras --group dev
 
       - name: Run linters (black, flake8)
         run: |
@@ -69,6 +67,12 @@ jobs:
         run: |
           echo "Running contract tests..."
           uv run --group dev python -m pytest backend/tests/contract/ -v --tb=short --strict-markers -m contract
+
+      - name: Validate migrations
+        run: |
+          echo "Validating migration files..."
+          uv run --group dev alembic history
+          echo "✅ Migration history validated"
 
       - name: Run integration tests (if any)
         continue-on-error: true

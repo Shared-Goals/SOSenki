@@ -1,28 +1,34 @@
 <!--
-<!--
 Sync Impact Report
 
-Version change: 0.2.0 → 0.3.0
+Version change: 0.3.0 → 0.4.0 (MINOR)
+
+Rationale: Added new guidance on GitHub Actions CI/CD best practices using
+`astral-sh/setup-uv` action and cache enablement. Non-breaking clarification
+that improves developer experience and CI efficiency.
 
 Modified principles:
-- Dependency management: clarified and constrained to use `pyproject.toml` with `uv` as the single supported local package manager/task-runner. Use of `requirements.txt` is disallowed for new features and must be migrated.
+- Development Workflow & Quality Gates: expanded CI guidance to include GitHub
+  Actions best practices for uv setup and caching.
 
 Added sections:
-- Dependency management enforcement: prefer `pyproject.toml` + `uv.lock` for reproducible installs; document migration steps for repositories still using `requirements.txt`.
+- GitHub Actions Integration: recommended use of `astral-sh/setup-uv@v6` action
+  with cache support; instructions for Python version matrix setup; benefits
+  (built-in caching, faster CI, official support).
 
 Removed sections:
-- (no removals beyond tightening dependency guidance)
+- (no removals)
 
 Templates requiring updates:
-- `specs/001-seamless-telegram-auth/tasks.md`: ✅ updated — removed reference to `requirements.txt` and instructs use of `pyproject.toml` only
-- `.specify/templates/plan-template.md`: ✅ reviewed — no change required
+- `.github/workflows/test-backend.yaml`: ✅ updated — uses astral-sh/setup-uv@v6 with cache
+- `.github/workflows/validate-migrations.yaml`: ✅ updated — uses astral-sh/setup-uv@v6 with cache
+- `docs/CONTRIBUTING.md`: ✅ reviewed — already documents preferred uv workflow
+- `.specify/templates/plan-template.md`: ⚠ can reference new CI guidance if workflows are policy-checked
 - `.specify/templates/spec-template.md`: ✅ reviewed — no change required
-- `.specify/templates/tasks-template.md`: ✅ reviewed — no change required
-- `.specify/templates/checklist-template.md`: ✅ reviewed — no change required
 
 Follow-up TODOs:
-- Update CI job definitions and any developer docs that reference `requirements.txt` to use `pyproject.toml`/`uv` (files to check: `.github/workflows/*`, `docs/*`, `README.md`).
-- Ensure any automation that installs dependencies (Dockerfiles, CI scripts) is updated to use `uv` with `pyproject.toml` and `uv.lock`.
+- (none; GitHub Actions workflows now follow best practices)
+
 -->
 # SOSenki Constitution
 
@@ -96,6 +102,24 @@ Design choices MUST favor simplicity and YAGNI; avoid premature generalization.
   Dependency installation and lockfile updates MUST be performed via `uv` and recorded in
   `uv.lock` (do NOT commit or maintain `requirements.txt`).
 
+## GitHub Actions & CI/CD Best Practices
+
+- GitHub Actions workflows MUST use the official `astral-sh/setup-uv@v6` action (or later) to
+  install and manage uv in CI environments. This action provides built-in support for:
+  - Installing uv and managing its cache across workflow runs (enable with `enable-cache: true`)
+  - Installing Python versions via `uv python install` (respects matrix and project requirements)
+  - Faster dependency resolution and test execution
+- Recommended workflow pattern:
+  1. Use `actions/checkout@v4` to fetch code
+  2. Use `astral-sh/setup-uv@v6` with `enable-cache: true` to install uv and enable cache persistence
+  3. Run `uv python install <VERSION>` to set up required Python version(s)
+  4. Run `uv sync --all-extras --group dev` to install dependencies
+  5. Run tests, linters, and migrations using `uv run` tasks
+- For matrix testing across multiple Python versions, set each version in the matrix and pass it
+  to `uv python install` via GitHub Actions context variables (e.g., `uv python install ${{ matrix.python-version }}`).
+- Rationale: Using the official action ensures maintainability, leverages Astral's improvements,
+  provides performant caching, and eliminates manual pip-based uv installation.
+
 ## Governance
 
 Amendments: Changes to this constitution MUST be proposed as a spec under `/specs/governance/`
@@ -122,4 +146,4 @@ releases and when specs are merged that affect cross-cutting concerns. The `/spe
 `/speckit.spec` workflows MUST reference this constitution and fail the Constitution Check if
 required gates are not satisfied.
 
-**Version**: 0.3.0 | **Ratified**: 2025-11-02 | **Last Amended**: 2025-11-03
+**Version**: 0.4.0 | **Ratified**: 2025-11-02 | **Last Amended**: 2025-11-03
