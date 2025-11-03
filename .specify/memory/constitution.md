@@ -1,31 +1,27 @@
 <!--
 Sync Impact Report
 
-Version change: TEMPLATE → 0.1.0
+Version change: 0.1.0 → 0.2.0
 
 Modified principles:
-- PRINCIPLE_1_NAME (template placeholder) → Spec-First Development
-- PRINCIPLE_2_NAME (template placeholder) → Business Logic in Services (Separation of Concerns)
-- PRINCIPLE_3_NAME (template placeholder) → Test-First (TDD, Non-Negotiable)
-- PRINCIPLE_4_NAME (template placeholder) → Integration & Contract Testing
-- PRINCIPLE_5_NAME (template placeholder) → Observability, Versioning & Simplicity
+- (no principle renames) — clarified Development Workflow & Quality Gates to require a single maintainer review (removed any requirement for two reviewers)
 
 Added sections:
-- Constraints & Security Requirements
-- Development Workflow & Quality Gates
+- Preferred Telegram bot library: python-telegram-bot (constraints)
+- Preferred local package manager/execution: uv (development workflow)
 
 Removed sections:
-- None
+- Explicit requirement for two-maintainer PR approvals (relaxed to single-maintainer review)
 
 Templates requiring updates:
-- .specify/templates/plan-template.md: ✅ updated (aligns with spec-first and constitution check)
-- .specify/templates/spec-template.md: ✅ updated (user scenarios, mandatory tests)
-- .specify/templates/tasks-template.md: ✅ updated (task grouping by story, testing guidance)
-- .specify/templates/checklist-template.md: ✅ updated (no action required; items are generated)
-- .specify/templates/agent-file-template.md: ✅ updated (guidelines generic)
+- .specify/templates/plan-template.md: ✅ reviewed — no change required
+- .specify/templates/spec-template.md: ✅ reviewed — no change required
+- .specify/templates/tasks-template.md: ✅ reviewed — no change required
+- .specify/templates/checklist-template.md: ✅ reviewed — no change required
+- .specify/templates/agent-file-template.md: ✅ reviewed — no change required
 
 Follow-up TODOs:
-- RATIFICATION_DATE set to 2025-11-02 (formal ratification recorded)
+- Ensure CI / CODEOWNERS (if present) reflect single-reviewer policy where applicable.
 -->
 
 # SOSenki Constitution
@@ -72,6 +68,8 @@ Design choices MUST favor simplicity and YAGNI; avoid premature generalization.
 ## Constraints & Security Requirements
 
 - Primary stack: Python 3.11+, FastAPI for HTTP services, SQLAlchemy + PostgreSQL for persistence.
+- Preferred Telegram bot library: `python-telegram-bot` for bot implementation where applicable.
+- Preferred local package manager and task runner: `uv` (use `uv run <task>` for local test/commands).
 - Secrets MUST NOT be hard-coded. Use environment variables and `.env` files locally. Production
   credentials MUST be stored in a secure secrets store.
 - Any external integration (e.g., Telegram Bot API, Yandex Cloud) MUST have documented scopes,
@@ -81,21 +79,24 @@ Design choices MUST favor simplicity and YAGNI; avoid premature generalization.
 
 - Spec-first: every feature folder in `/specs/` is required before implementation branches are
   opened.
-- Pull requests MUST reference a spec and include the test plan. PRs MUST be reviewed by at least
-  one maintainer and pass CI (lint, tests, spec-kit checks) before merge.
+- Pull requests MUST reference a spec and include the test plan. PRs MUST be reviewed and
+  approved by at least one repository maintainer and pass CI (lint, tests, spec-kit checks)
+  before merge. (Policy change: the prior requirement for two-maintainer approvals has been
+  removed; single-maintainer review is sufficient unless repository owners configure stricter
+  rules in CODEOWNERS or CI.)
 - Linting/formatting: backend uses `black` and `flake8`; frontend uses `prettier` and `eslint` (see
-  repo docs).
+  repo docs). Use `uv run` for local test/task execution when available (e.g., `uv run pytest`).
 
 ## Governance
 
-Amendments: Changes to this constitution MUST be proposed as a spec under `/specs/governance/` and
-implemented via a PR that includes:
+Amendments: Changes to this constitution MUST be proposed as a spec under `/specs/governance/`
+and implemented via a PR that includes:
 
 1. The proposed text change and rationale.
 2. A migration or compliance plan for affected projects (if applicable).
 3. Tests or checks demonstrating how the change will be enforced.
 
-Approval: Constitutional amendments MUST be approved by at least two repository maintainers. For
+Approval: Constitutional amendments MUST be approved by at least one repository maintainer. For
 material changes (principle additions/removals or governance redefinitions) the bump MUST be a
 MAJOR version. Non-material clarifications are PATCHes.
 
@@ -112,4 +113,4 @@ releases and when specs are merged that affect cross-cutting concerns. The `/spe
 `/speckit.spec` workflows MUST reference this constitution and fail the Constitution Check if
 required gates are not satisfied.
 
-**Version**: 0.1.0 | **Ratified**: 2025-11-02 | **Last Amended**: 2025-11-02
+**Version**: 0.2.0 | **Ratified**: 2025-11-02 | **Last Amended**: 2025-11-03

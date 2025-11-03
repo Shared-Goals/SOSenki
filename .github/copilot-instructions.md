@@ -33,3 +33,10 @@ This repo implements SOSenki — a Telegram Mini App built with a Python/FastAPI
   - Setup & deployment: `docs/SETUP.md` and `docs/DEPLOYMENT.md`.
 
 If anything above is unclear or you need additional examples (small patch + tests) to illustrate a convention, tell me which area and I'll add a concrete, minimal PR-ready example. 
+
+## Active Technologies
+- Python 3.11 (per constitution) + FastAPI (backend), python-telegram-bot or Telegram Bot API HTTP integration for bot delivery; web frontend for Mini App (static site served by backend) (001-seamless-telegram-auth)
+- PostgreSQL (existing project default) (001-seamless-telegram-auth)
+
+## Recent Changes
+- 001-seamless-telegram-auth: Added Python 3.11 (per constitution) + FastAPI (backend), python-telegram-bot or Telegram Bot API HTTP integration for bot delivery; web frontend for Mini App (static site served by backend)
