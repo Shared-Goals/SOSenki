@@ -1,29 +1,29 @@
 <!--
+<!--
 Sync Impact Report
 
-Version change: 0.1.0 → 0.2.0
+Version change: 0.2.0 → 0.3.0
 
 Modified principles:
-- (no principle renames) — clarified Development Workflow & Quality Gates to require a single maintainer review (removed any requirement for two reviewers)
+- Dependency management: clarified and constrained to use `pyproject.toml` with `uv` as the single supported local package manager/task-runner. Use of `requirements.txt` is disallowed for new features and must be migrated.
 
 Added sections:
-- Preferred Telegram bot library: python-telegram-bot (constraints)
-- Preferred local package manager/execution: uv (development workflow)
+- Dependency management enforcement: prefer `pyproject.toml` + `uv.lock` for reproducible installs; document migration steps for repositories still using `requirements.txt`.
 
 Removed sections:
-- Explicit requirement for two-maintainer PR approvals (relaxed to single-maintainer review)
+- (no removals beyond tightening dependency guidance)
 
 Templates requiring updates:
-- .specify/templates/plan-template.md: ✅ reviewed — no change required
-- .specify/templates/spec-template.md: ✅ reviewed — no change required
-- .specify/templates/tasks-template.md: ✅ reviewed — no change required
-- .specify/templates/checklist-template.md: ✅ reviewed — no change required
-- .specify/templates/agent-file-template.md: ✅ reviewed — no change required
+- `specs/001-seamless-telegram-auth/tasks.md`: ✅ updated — removed reference to `requirements.txt` and instructs use of `pyproject.toml` only
+- `.specify/templates/plan-template.md`: ✅ reviewed — no change required
+- `.specify/templates/spec-template.md`: ✅ reviewed — no change required
+- `.specify/templates/tasks-template.md`: ✅ reviewed — no change required
+- `.specify/templates/checklist-template.md`: ✅ reviewed — no change required
 
 Follow-up TODOs:
-- Ensure CI / CODEOWNERS (if present) reflect single-reviewer policy where applicable.
+- Update CI job definitions and any developer docs that reference `requirements.txt` to use `pyproject.toml`/`uv` (files to check: `.github/workflows/*`, `docs/*`, `README.md`).
+- Ensure any automation that installs dependencies (Dockerfiles, CI scripts) is updated to use `uv` with `pyproject.toml` and `uv.lock`.
 -->
-
 # SOSenki Constitution
 
 ## Core Principles
@@ -69,7 +69,14 @@ Design choices MUST favor simplicity and YAGNI; avoid premature generalization.
 
 - Primary stack: Python 3.11+, FastAPI for HTTP services, SQLAlchemy + PostgreSQL for persistence.
 - Preferred Telegram bot library: `python-telegram-bot` for bot implementation where applicable.
-- Preferred local package manager and task runner: `uv` (use `uv run <task>` for local test/commands).
+- Dependency management (REQUIRED): Projects MUST use `pyproject.toml` to declare Python
+  dependencies and tooling. The endorsed local package manager and task-runner is `uv` and
+  dependency resolution MUST be recorded in `uv.lock` for reproducible installs. The use of
+  `requirements.txt` is NOT permitted for new features and teams MUST migrate existing
+  `requirements.txt` usages to `pyproject.toml` + `uv.lock` according to the repository
+  migration guidance. Rationale: single standardized dependency mechanism reduces drift,
+  encourages lockfile-based reproducible installs, and integrates cleanly with `uv run` tasks.
+- Use `uv run` for local commands and test execution (e.g., `uv run pytest`).
 - Secrets MUST NOT be hard-coded. Use environment variables and `.env` files locally. Production
   credentials MUST be stored in a secure secrets store.
 - Any external integration (e.g., Telegram Bot API, Yandex Cloud) MUST have documented scopes,
@@ -86,6 +93,8 @@ Design choices MUST favor simplicity and YAGNI; avoid premature generalization.
   rules in CODEOWNERS or CI.)
 - Linting/formatting: backend uses `black` and `flake8`; frontend uses `prettier` and `eslint` (see
   repo docs). Use `uv run` for local test/task execution when available (e.g., `uv run pytest`).
+  Dependency installation and lockfile updates MUST be performed via `uv` and recorded in
+  `uv.lock` (do NOT commit or maintain `requirements.txt`).
 
 ## Governance
 
@@ -113,4 +122,4 @@ releases and when specs are merged that affect cross-cutting concerns. The `/spe
 `/speckit.spec` workflows MUST reference this constitution and fail the Constitution Check if
 required gates are not satisfied.
 
-**Version**: 0.2.0 | **Ratified**: 2025-11-02 | **Last Amended**: 2025-11-03
+**Version**: 0.3.0 | **Ratified**: 2025-11-02 | **Last Amended**: 2025-11-03
