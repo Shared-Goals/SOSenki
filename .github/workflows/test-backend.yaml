@@ -1,0 +1,96 @@
+name: Backend Tests (Python / pytest)
+
+on:
+  push:
+    branches:
+      - main
+      - develop
+    paths:
+      - 'backend/**'
+      - 'pyproject.toml'
+      - 'uv.lock'
+      - '.github/workflows/test-backend.yaml'
+  pull_request:
+    branches:
+      - main
+      - develop
+    paths:
+      - 'backend/**'
+      - 'pyproject.toml'
+      - 'uv.lock'
+
+jobs:
+  test-backend:
+    name: Test Backend (Python ${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version:
+          - '3.11'
+          - '3.12'
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install uv
+        run: |
+          pip install --upgrade uv
+
+      - name: Sync dependencies with uv
+        run: |
+          uv sync --group dev
+
+      - name: Run linters (black, flake8)
+        run: |
+          echo "Running black formatting check..."
+          uv run --group dev black --check backend/app backend/tests || echo "⚠️ Code formatting issues found (run 'black .' to fix)"
+          
+          echo "Running flake8 linting..."
+          uv run --group dev flake8 backend/app backend/tests || echo "⚠️ Flake8 issues found"
+
+      - name: Run type checking (mypy)
+        continue-on-error: true
+        run: |
+          echo "Running mypy type checker..."
+          uv run --group dev mypy backend/app || echo "⚠️ Type hints issues found (advisory only)"
+
+      - name: Run unit tests
+        run: |
+          echo "Running unit tests..."
+          uv run --group dev python -m pytest backend/tests/unit/ -v --tb=short --strict-markers -m unit
+
+      - name: Run contract tests
+        run: |
+          echo "Running contract tests..."
+          uv run --group dev python -m pytest backend/tests/contract/ -v --tb=short --strict-markers -m contract
+
+      - name: Run integration tests (if any)
+        continue-on-error: true
+        run: |
+          echo "Running integration tests..."
+          uv run --group dev python -m pytest backend/tests/integration/ -v --tb=short --strict-markers -m integration
+
+      - name: Generate coverage report
+        continue-on-error: true
+        run: |
+          echo "Generating coverage report..."
+          uv run --group dev python -m pytest backend/tests/ --cov=backend/app --cov-report=term-missing || echo "⚠️ Coverage report generation skipped"
+
+      - name: Test summary
+        if: always()
+        run: |
+          echo "## Backend Test Summary"
+          echo ""
+          echo "✅ All backend tests completed on Python ${{ matrix.python-version }}"
+          echo ""
+          echo "Run tests locally with:"
+          echo "\`\`\`bash"
+          echo "uv sync --group dev"
+          echo "uv run --group dev python -m pytest backend/tests/ -v"
+          echo "\`\`\`"

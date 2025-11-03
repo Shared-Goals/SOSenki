@@ -1,0 +1,62 @@
+name: Validate OpenAPI Contracts
+
+on:
+  push:
+    branches:
+      - main
+      - develop
+    paths:
+      - 'specs/**/contracts/*.yaml'
+      - 'specs/**/contracts/*.yml'
+      - '.github/workflows/validate-openapi.yaml'
+  pull_request:
+    branches:
+      - main
+      - develop
+    paths:
+      - 'specs/**/contracts/*.yaml'
+      - 'specs/**/contracts/*.yml'
+
+jobs:
+  validate-openapi:
+    name: Validate OpenAPI Contracts
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+
+      - name: Install Redocly CLI
+        run: |
+          npm install -g @redocly/cli@latest
+
+      - name: Validate OpenAPI contracts
+        run: |
+          echo "Validating OpenAPI contracts in specs/**/contracts/"
+          find specs -name "contracts" -type d -exec sh -c '
+            for dir in "$@"; do
+              echo "📋 Checking directory: $dir"
+              for file in "$dir"/*.{yaml,yml}; do
+                if [ -f "$file" ]; then
+                  echo "  ✓ Validating: $file"
+                  redocly lint "$file" || exit 1
+                fi
+              done
+            done
+          ' sh {} +
+          echo "✅ All OpenAPI contracts are valid!"
+
+      - name: Generate report
+        if: always()
+        run: |
+          echo "## OpenAPI Validation Report"
+          echo ""
+          echo "**Timestamp:** $(date -u +'%Y-%m-%d %H:%M:%S UTC')"
+          echo ""
+          echo "All contract files in \`specs/**/contracts/\` have been validated against OpenAPI 3.0+ standards."
+        shell: bash

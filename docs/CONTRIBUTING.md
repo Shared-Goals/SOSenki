@@ -1,78 +1,78 @@
-# Руководство для контрибьюторов
+# Contributor Guide
 
-Спасибо за интерес к SOSenki! Мы приветствуем контрибьюции от сообщества.
+Thank you for your interest in SOSenki! We welcome contributions from the community.
 
-## Начало работы
+## Getting Started
 
-1. **Форкните репозиторий** на GitHub
-2. **Клонируйте ваш форк** локально
-3. **Создайте ветку** для вашего изменения: `git checkout -b feature/ваша-фишка`
+1. **Fork the repository** on GitHub
+2. **Clone your fork** locally
+3. **Create a branch** for your change: `git checkout -b feature/your-feature`
 
-## Требования к коду
+## Code Requirements
 
-### Бэкенд (Python/FastAPI)
+### Backend (Python/FastAPI)
 
-- Следуйте [PEP 8](https://pep8.org/)
-- Используйте `black` для форматирования: `black .`
-- Используйте `flake8` для проверки: `flake8 app/`
-- Добавляйте тесты для новых функций с использованием `pytest`
-- Управление зависимостями: используйте `pyproject.toml` и `uv` (не используйте `requirements.txt` для новых фич)
-   - Установите `uv` (macOS): `brew install uv`
-   - Установите зависимости для разработки и тестов:
+- Follow [PEP 8](https://pep8.org/)
+- Use `black` for formatting: `black .`
+- Use `flake8` for linting: `flake8 app/`
+- Add tests for new features using `pytest`
+- Dependency management: use `pyproject.toml` and `uv` (do not use `requirements.txt` for new features)
+  - Install `uv` (macOS): `brew install uv`
+  - Install development and test dependencies:
 
-     ```bash
-     cd SOSenki
-     uv sync --group dev
-     ```
+      ```bash
+      cd SOSenki
+      uv sync --group dev
+      ```
 
-   - Запуск тестов:
+  - Run tests:
 
-     ```bash
-     uv run --group dev python -m pytest backend/tests/ -v
-     ```
+      ```bash
+      uv run --group dev python -m pytest backend/tests/ -v
+      ```
 
-### Фронтенд (JavaScript/Vanilla)
+### Frontend (JavaScript/Vanilla)
 
-- Используйте `prettier` для форматирования: `prettier --write src/`
-- Используйте `eslint` для проверки: `eslint src/`
-- Минимизируйте зависимости
-- Тестируйте совместимость с Telegram Mini App SDK
+- Use `prettier` for formatting: `prettier --write src/`
+- Use `eslint` for linting: `eslint src/`
+- Minimize dependencies
+- Test compatibility with the Telegram Mini App SDK
 
-## Процесс коммитов
+## Commit Process
 
-- Пишите ясные, описательные сообщения коммитов на английском языке
-- Один коммит = одна логическая единица изменений
-- Пример: `git commit -m "feat: add bill calculation service"`
+- Write clear, descriptive commit messages in English
+- One commit = one logical unit of changes
+- Example: `git commit -m "feat: add bill calculation service"`
 
-## Отправка Pull Request
+## Submitting a Pull Request
 
-1. Убедитесь, что все тесты проходят
-2. Обновите документацию, если необходимо
-3. Опишите ваши изменения в PR ясно и кратко
-4. Ссылайтесь на связанные Issues, если они есть: `Closes #123`
+1. Make sure all tests pass
+2. Update documentation if needed
+3. Describe your changes in the PR clearly and concisely
+4. Reference related Issues if any: `Closes #123`
 
-## Лицензия
+## License
 
-Отправляя код, вы соглашаетесь, что он будет распространяться под [Apache License 2.0](LICENSE).
-Это означает, что все ваши контрибьюции автоматически переходят под эту лицензию.
+By submitting code, you agree that it will be distributed under the [Apache License 2.0](LICENSE).
+This means all your contributions automatically fall under this license.
 
-## Ветвление и версионирование
+## Branching and Versioning
 
-- `main` — продакшн-готовый код
-- `develop` — активная разработка
-- Используем [Semantic Versioning](https://semver.org/) (v1.0.0)
+- `main` — production-ready code
+- `develop` — active development
+- We use [Semantic Versioning](https://semver.org/) (v1.0.0)
 
-## Вопросы и проблемы
+## Questions and Issues
 
-- Используйте **GitHub Issues** для отчетов об ошибках
-- Используйте **Discussions** для вопросов и предложений
-- Обратитесь в чат команды Shared Goals для срочных вопросов
+- Use **GitHub Issues** to report bugs
+- Use **Discussions** for questions and suggestions
+- Contact the Shared Goals team chat for urgent questions
 
-## Код поведения
+## Code of Conduct
 
-Мы придерживаемся [Contributor Covenant](https://www.contributor-covenant.org/).
-Любые нарушения должны быть сообщены команде.
+We follow the [Contributor Covenant](https://www.contributor-covenant.org/).
+Any violations should be reported to the team.
 
 ---
 
-**Спасибо за помощь в развитии SOSenki!** 🌲
+**Thank you for helping grow SOSenki!** 🌲
