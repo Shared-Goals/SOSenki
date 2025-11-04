@@ -1,9 +1,11 @@
 """ClientRequest ORM model for tracking client access requests."""
 
 from datetime import datetime, timezone
-from sqlalchemy import String, Text, Enum, DateTime, Index
-from sqlalchemy.orm import Mapped, mapped_column
 from enum import Enum as PyEnum
+
+from sqlalchemy import DateTime, Enum, Index, String, Text
+from sqlalchemy.orm import Mapped, mapped_column
+
 from src.models import Base, BaseModel
 
 

@@ -1,18 +1,22 @@
 """Telegram bot configuration from environment variables."""
 
 import os
+
+from pydantic import ConfigDict
 from pydantic_settings import BaseSettings
 
 
 class BotConfig(BaseSettings):
     """Bot configuration loaded from environment."""
 
+    model_config = ConfigDict(
+        env_file=".env",
+        case_sensitive=False,
+        extra="ignore",  # Allow extra fields in .env file
+    )
+
     telegram_bot_token: str = os.getenv("TELEGRAM_BOT_TOKEN", "")
     admin_telegram_id: str = os.getenv("ADMIN_TELEGRAM_ID", "")
-
-    class Config:
-        env_file = ".env"
-        case_sensitive = False
 
     def validate(self) -> None:
         """Validate required configuration is present."""

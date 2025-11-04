@@ -1,10 +1,11 @@
 """Alembic environment configuration for async SQLAlchemy operations."""
 
+import os
 from logging.config import fileConfig
-from sqlalchemy import create_engine
+
 from alembic import context
 from dotenv import load_dotenv
-import os
+from sqlalchemy import create_engine
 
 from src.models import Base
 

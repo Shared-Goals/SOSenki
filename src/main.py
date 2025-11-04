@@ -3,12 +3,13 @@
 import asyncio
 import logging
 from typing import Optional
+
+import uvicorn
 from dotenv import load_dotenv
 from telegram.ext import Application
-import uvicorn
 
-from src.bot import create_bot_app
 from src.api.webhook import app, setup_webhook_route
+from src.bot import create_bot_app
 
 # Load environment variables
 load_dotenv()

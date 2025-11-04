@@ -1,8 +1,9 @@
 """SQLAlchemy base model with common fields and model exports."""
 
 from datetime import datetime, timezone
-from sqlalchemy.orm import declarative_base, Mapped, mapped_column
+
 from sqlalchemy import DateTime
+from sqlalchemy.orm import Mapped, declarative_base, mapped_column
 
 # Base class for all models
 Base = declarative_base()
@@ -27,8 +28,8 @@ class BaseModel:
 
 # Import models to register them with Base (after Base is defined)
 # This must be after Base declaration to avoid circular imports
-from src.models.client_request import ClientRequest, RequestStatus  # noqa: E402
 from src.models.admin_config import Administrator  # noqa: E402
+from src.models.client_request import ClientRequest, RequestStatus  # noqa: E402
 
 __all__ = [
     "Base",

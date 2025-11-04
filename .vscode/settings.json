@@ -7,6 +7,11 @@
         "speckit.implement": true
     },
     "chat.tools.terminal.autoApprove": {
+
+        "tail": true,
+        "uv run ruff check": true,
+        "/.*uv run pytest.*/": true,
+        "/TELEGRAM_BOT_TOKEN=.*uv run pytest.*tail/": true,
         ".specify/scripts/bash/": true,
         ".specify/scripts/powershell/": true
     },

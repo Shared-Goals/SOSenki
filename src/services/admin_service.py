@@ -1,6 +1,10 @@
 """Admin service for approval and rejection workflows."""
 
+from datetime import datetime, timezone
+
 from sqlalchemy.orm import Session
+
+from src.models.client_request import ClientRequest, RequestStatus
 
 
 class AdminService:
@@ -13,35 +17,77 @@ class AdminService:
         self,
         request_id: int,
         admin_telegram_id: str,
-    ) -> bool:
+    ) -> ClientRequest | None:
         """Approve a client request.
+
+        T040, T042: Update status to approved, mark client as active.
 
         Args:
             request_id: Request ID to approve
             admin_telegram_id: Admin's Telegram ID
 
         Returns:
-            True if successful, False otherwise
+            Updated request object if successful, None otherwise
         """
-        # TODO: T042 - Update status to approved, mark client as active
-        pass
+        try:
+            # Find the request
+            request = self.db.query(ClientRequest).filter(
+                ClientRequest.id == request_id
+            ).first()
+
+            if not request:
+                return None
+
+            # Update request status to approved
+            request.status = RequestStatus.APPROVED
+            request.admin_telegram_id = admin_telegram_id
+            request.admin_response = "approved"
+            request.responded_at = datetime.now(timezone.utc)
+
+            self.db.commit()
+            return request
+
+        except Exception:
+            self.db.rollback()
+            return None
 
     async def reject_request(
         self,
         request_id: int,
         admin_telegram_id: str,
-    ) -> bool:
+    ) -> ClientRequest | None:
         """Reject a client request.
+
+        T040: Update status to rejected.
 
         Args:
             request_id: Request ID to reject
             admin_telegram_id: Admin's Telegram ID
 
         Returns:
-            True if successful, False otherwise
+            Updated request object if successful, None otherwise
         """
-        # TODO: - Update status to rejected
-        pass
+        try:
+            # Find the request
+            request = self.db.query(ClientRequest).filter(
+                ClientRequest.id == request_id
+            ).first()
+
+            if not request:
+                return None
+
+            # Update request status to rejected
+            request.status = RequestStatus.REJECTED
+            request.admin_telegram_id = admin_telegram_id
+            request.admin_response = "rejected"
+            request.responded_at = datetime.now(timezone.utc)
+
+            self.db.commit()
+            return request
+
+        except Exception:
+            self.db.rollback()
+            return None
 
     async def get_admin_config(self) -> dict | None:
         """Get admin configuration.
