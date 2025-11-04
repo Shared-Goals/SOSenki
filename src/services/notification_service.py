@@ -40,7 +40,7 @@ class NotificationService:
         await self.send_message(client_id, confirmation_text)
 
     async def send_notification_to_admin(
-        self, request_id: int, client_id: str, client_name: str, request_message: str
+        self, request_id: int, client_id: str, client_name: str = None, request_message: str = None
     ) -> None:
         """Send notification to admin about new request.
 
@@ -50,9 +50,12 @@ class NotificationService:
             client_name: Client's name from Telegram
             request_message: The client's request message
         """
+        # Import here to avoid circular import
+        from src.bot.config import bot_config
+        
         # T030: Send notification with [Approve] [Reject] reply keyboard
         notification_text = (
-            f"Client Request: {client_name} (ID: {client_id}) - '{request_message}'"
+            f"Client Request: {client_name or 'User'} (ID: {client_id}) - '{request_message or '(no message)'}'"
         )
 
         # Note: Reply keyboard implementation requires storing request_id
@@ -62,7 +65,7 @@ class NotificationService:
 
         # TODO: Implement reply keyboard with callback data
         # For MVP, using simple Approve/Reject text responses
-        await self.send_message("admin_chat_id", notification_text)
+        await self.send_message(bot_config.admin_telegram_id, notification_text)
 
     async def send_welcome_message(self, client_id: str) -> None:
         """Send welcome message to approved client.
