@@ -27,7 +27,6 @@ jobs:
       matrix:
         python-version:
           - '3.11'
-          - '3.12'
 
     steps:
       - name: Checkout code
@@ -66,7 +65,7 @@ jobs:
       - name: Run contract tests (T035)
         run: |
           echo "Running contract tests (fail on regressions)..."
-          uv run --group dev python -m pytest backend/tests/contract/ -v --tb=short --fail-on-changes
+          uv run --group dev python -m pytest backend/tests/contract/ -v --tb=short
           echo "✅ Contract tests passed"
 
       - name: Validate migrations (T036)

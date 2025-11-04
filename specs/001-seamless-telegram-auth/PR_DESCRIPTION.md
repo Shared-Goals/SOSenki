@@ -1,4 +1,4 @@
-Title: feat(001): Seamless Telegram Auth — MVP onboarding + admin flow
+# feat(001): Seamless Telegram Auth — MVP onboarding + admin flow
 
 Summary
 
@@ -29,6 +29,7 @@ Files of note
 Next steps / Infra
 
 This PR intentionally defers infra-specific tasks to a separate SDD and feature(s). Suggested infra items (tracked separately):
+
 - Deploy to Telegram Bot webhook (production integration)
 - Add email notifications (optional)
 - Rate limiting and scaling considerations

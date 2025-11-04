@@ -1,6 +1,5 @@
 """Contract tests for admin request action endpoints (US3 — Admin decision handling)."""
 
-import pytest
 from fastapi.testclient import TestClient
 from backend.app.models.telegram_user_candidate import TelegramUserCandidate
 from backend.app.models.admin_action import AdminAction
@@ -121,10 +120,10 @@ class TestAdminActionContract:
         candidate = test_db_session.query(TelegramUserCandidate).filter_by(id=request_id).first()
         assert candidate.status != "pending"
 
-    def test_admin_action_duplicate_telegram_id_returns_409(
+    def test_duplicate_telegram_id_submission_returns_400(
         self, client: TestClient, test_db_session
     ):
-        """POST /admin/requests/{request_id}/action with duplicate telegram_id returns 409."""
+        """POST /requests with duplicate telegram_id returns 400."""
         # Create and accept first request
         payload1 = {
             "telegram_id": 555555555,
@@ -141,8 +140,7 @@ class TestAdminActionContract:
         client.post(f"/admin/requests/{request_id1}/action", json=action_payload1)
 
         # Now the duplicate request attempt will fail at submission, which is expected behavior.
-        # The 409 test doesn't apply at this level since duplicate requests are rejected at submission.
-        # This test verifies that the system correctly handles the duplicate constraint.
+        # This test verifies that the system correctly handles the duplicate constraint at submission.
         # Create second request with same telegram_id (will fail with 400 at submission)
         payload2 = {
             "telegram_id": 555555555,
@@ -153,5 +151,5 @@ class TestAdminActionContract:
             "email": "user1dup@example.com",
         }
         create_response2 = client.post("/requests", json=payload2)
-        # Should get 400 (conflict) at submission, not 409 at admin action
+        # Should get 400 (conflict) at submission
         assert create_response2.status_code == 400
