@@ -1,11 +1,14 @@
 """Request service for managing client access requests."""
 
+import logging
 from datetime import datetime, timezone
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from src.models import ClientRequest, RequestStatus
+from src.models import AccessRequest, RequestStatus, User
+
+logger = logging.getLogger(__name__)
 
 
 class RequestService:
@@ -15,25 +18,26 @@ class RequestService:
         self.db = db_session
 
     async def create_request(
-        self, client_telegram_id: str, request_message: str
-    ) -> ClientRequest | None:
+        self, user_telegram_id: str, request_message: str
+    ) -> AccessRequest | None:
         """Create a new request from a client.
 
         Validates that no pending request exists for this client,
-        then creates a new ClientRequest with status=pending.
+        then creates a new AccessRequest with status=pending.
+        Also ensures the user exists in the users table (foreign key requirement).
 
         Args:
-            client_telegram_id: Client's Telegram ID
+            user_telegram_id: Client's Telegram ID
             request_message: Request message text
 
         Returns:
-            Created ClientRequest or None if validation fails (duplicate pending request)
+            Created AccessRequest or None if validation fails (duplicate pending request)
         """
         # T028: Check for existing PENDING request from this client
         existing_pending = self.db.execute(
-            select(ClientRequest).where(
-                ClientRequest.client_telegram_id == client_telegram_id,
-                ClientRequest.status == RequestStatus.PENDING,
+            select(AccessRequest).where(
+                AccessRequest.user_telegram_id == user_telegram_id,
+                AccessRequest.status == RequestStatus.PENDING,
             )
         ).scalar_one_or_none()
 
@@ -41,9 +45,24 @@ class RequestService:
             # Client already has a pending request
             return None
 
+        # Ensure user exists in users table (required for foreign key)
+        existing_user = self.db.execute(
+            select(User).where(User.telegram_id == user_telegram_id)
+        ).scalar_one_or_none()
+
+        if not existing_user:
+            # Create user with is_active=False (will be activated on approval)
+            user = User(
+                telegram_id=user_telegram_id,
+                is_active=False,  # Not active until approved
+            )
+            self.db.add(user)
+            self.db.flush()  # Ensure user is written before creating request
+            logger.info("Created new user %s for request", user_telegram_id)
+
         # Create new request
-        new_request = ClientRequest(
-            client_telegram_id=client_telegram_id,
+        new_request = AccessRequest(
+            user_telegram_id=user_telegram_id,
             request_message=request_message,
             status=RequestStatus.PENDING,
             submitted_at=datetime.now(timezone.utc),
@@ -55,65 +74,65 @@ class RequestService:
 
         return new_request
 
-    async def get_pending_request(self, client_telegram_id: str) -> ClientRequest | None:
+    async def get_pending_request(self, user_telegram_id: str) -> AccessRequest | None:
         """Get pending request for a client.
 
         Args:
-            client_telegram_id: Client's Telegram ID
+            user_telegram_id: Client's Telegram ID
 
         Returns:
-            Pending ClientRequest or None if not found
+            Pending AccessRequest or None if not found
         """
         # T039: Query database for status=pending request from this client
         return self.db.execute(
-            select(ClientRequest).where(
-                ClientRequest.client_telegram_id == client_telegram_id,
-                ClientRequest.status == RequestStatus.PENDING,
+            select(AccessRequest).where(
+                AccessRequest.user_telegram_id == user_telegram_id,
+                AccessRequest.status == RequestStatus.PENDING,
             )
         ).scalar_one_or_none()
 
-    async def get_request_by_id(self, request_id: int) -> ClientRequest | None:
+    async def get_request_by_id(self, request_id: int) -> AccessRequest | None:
         """Get request by ID.
 
         Args:
             request_id: Request ID
 
         Returns:
-            ClientRequest or None if not found
+            AccessRequest or None if not found
         """
         return self.db.execute(
-            select(ClientRequest).where(ClientRequest.id == request_id)
+            select(AccessRequest).where(AccessRequest.id == request_id)
         ).scalar_one_or_none()
 
     async def update_request_status(
         self,
         request_id: int,
         new_status: RequestStatus,
-        admin_telegram_id: str,
-        admin_response: str,
+        responded_by_admin_id: str,
+        response_message: str,
     ) -> bool:
         """Update request status after admin action.
 
         Args:
             request_id: Request ID
             new_status: New status (approved/rejected)
-            admin_telegram_id: Admin's Telegram ID
-            admin_response: Admin's response message
+            responded_by_admin_id: Admin's Telegram ID
+            response_message: Admin's response message
 
         Returns:
             True if successful, False otherwise
         """
         # T040: Query, update status and admin details, commit
         request = self.db.execute(
-            select(ClientRequest).where(ClientRequest.id == request_id)
+            select(AccessRequest).where(AccessRequest.id == request_id)
         ).scalar_one_or_none()
 
         if not request:
             return False
 
         request.status = new_status
-        request.admin_telegram_id = admin_telegram_id
-        request.admin_response = admin_response
+        request.responded_by_admin_id = responded_by_admin_id
+        request.response_message = response_message
         request.responded_at = datetime.now(timezone.utc)
 
         self.db.commit()
