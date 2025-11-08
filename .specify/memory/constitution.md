@@ -2,12 +2,13 @@
 
 <!--
 SYNC IMPACT REPORT:
-- Version: 1.0.0 → 1.1.0 (MINOR bump: Frontend clarification + MCP Context7 documentation standard)
-- Principles: No changes (YAGNI, KISS, DRY unchanged)
-- Frontend Updated: Clarified as "Telegram Bot Messages and Mini App Forms"
-- New Guidance: MCP Context7 mandatory for library documentation lookups
-- Templates: No updates required (guidance is tooling standard, not structural change)
-- Last Amended: 2025-11-04
+- Version: 1.1.0 → 1.1.1 (PATCH bump: Strengthened YAGNI Rule - Database Schema with concrete enforcement guidelines)
+- Principles Modified: YAGNI principle expanded with schema-specific sub-rules
+- YAGNI Rule - Database Schema: Added enforcement checklist, migration/index guidance, and practical examples
+- Frontend: No changes
+- Templates: No updates required (enhanced guidance applies to data-model.md creation workflow)
+- Compliance Review: Schema design reviews MUST now reference YAGNI Rule - Database Schema before approving new tables/fields
+- Last Amended: 2025-11-05
 -->
 
 ## Core Principles
@@ -15,6 +16,35 @@ SYNC IMPACT REPORT:
 ### I. YAGNI (You Aren't Gonna Need It)
 
 Build only what is required for the current MVP. Do not speculate about future features or add scaffolding for theoretical use cases. Every line of code MUST serve an immediate, documented user story. Rationale: Reduces cognitive load, speeds time-to-value, prevents technical debt from phantom features.
+
+**YAGNI Rule - Database Schema (NON-NEGOTIABLE)**:
+
+Every database table, column, index, and constraint MUST satisfy the spec.md requirement test: *Can I point to an explicit user story or data flow in spec.md that requires this?* If the answer is no or "maybe for future X," the schema element MUST be removed.
+
+Sub-rules:
+
+1. **No speculative tables or fields**: Do not create tables/fields anticipating future features (e.g., ApprovalNotification table if notifications sent via webhook; RegisteredUser field if User.is_active=True serves the same purpose).
+
+2. **No "future-proofing" entities**: Schema MUST NOT include tables, columns, or indexes designed for hypothetical future features or "just in case" scenarios.
+
+3. **Consolidate over split**: When multiple entities serve the same logical purpose with different names, unify them into a single table with role/flag fields (e.g., Administrator + Client → unified User model with is_administrator, is_investor boolean flags).
+
+4. **Eliminate redundant fields**: If a field can be derived from another field or serves only as documentation (not directly used in queries/logic), remove it (e.g., approved_at is redundant if responded_at already captures the approval timestamp; mini_app_first_opened_at is not required by spec.md so remove it).
+
+5. **No data migration for hypotheticals**: Data migrations MUST NOT preserve/transform old records for features not yet implemented. Start fresh per MVP principle.
+
+6. **Test before adding any index**: Every index MUST map to a documented query pattern in performance considerations or code. Do not add "just in case" indexes.
+
+**Enforcement Checklist** (apply during code review for data-model.md):
+- [ ] Every table in schema maps to a section in spec.md user stories
+- [ ] Every column has explicit rationale referencing a query or validation rule
+- [ ] No "future" columns or "TBD" tables remain
+- [ ] No redundant fields (timestamps, derived values) present
+- [ ] All indexes correspond to documented query patterns
+- [ ] Data migration logic (if any) only handles current feature scope
+- [ ] Role/permission logic uses boolean flags, not separate tables
+
+**Rationale**: Schema bloat accumulates technical debt rapidly—every extra table/field increases migration complexity, storage overhead, query planning surface, and maintenance burden. Simplified schemas are faster to migrate, easier to reason about, and scale predictably.
 
 ### II. KISS (Keep It Simple, Stupid)
 
@@ -84,6 +114,7 @@ Eliminate code duplication through abstraction and reuse. When logic appears in 
 - **Constitution Compliance**: All reviews verify adherence to YAGNI, KISS, DRY principles
 - **Justification**: If complexity is introduced, explicit rationale required in PR description
 - **Dependency Changes**: Every new dependency MUST be justified against YAGNI (is it truly necessary?)
+- **Schema Design Reviews**: Every data-model.md change MUST pass YAGNI Rule - Database Schema enforcement checklist before approval (see Core Principles)
 
 ## Governance
 
@@ -107,5 +138,6 @@ Eliminate code duplication through abstraction and reuse. When logic appears in 
 - `uv` usage verified for Python dependency management across all PRs
 - No secrets appear in any diff (automated scan recommended)
 - MCP Context7 documentation lookups verified for all new dependencies
+- Schema design reviews reference YAGNI Rule - Database Schema enforcement checklist
 
-**Version**: 1.1.0 | **Ratified**: 2025-11-04 | **Last Amended**: 2025-11-04
+**Version**: 1.1.1 | **Ratified**: 2025-11-04 | **Last Amended**: 2025-11-05
