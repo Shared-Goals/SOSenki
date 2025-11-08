@@ -1,4 +1,4 @@
-# Research & Technical Decisions: Welcome Mini App for Approved Users# Research & Technical Decisions: Welcome Mini App for Approved Users# Research & Technical Decisions: Welcome Mini App for Approved Users# Research & Technical Decisions: Welcome Mini App for Approved Users# Research & Technical Decisions: Welcome Mini App for Approved Users
+# Research & Technical Decisions: Welcome Mini App for Approved Users
 
 
 

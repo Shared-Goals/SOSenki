@@ -309,7 +309,7 @@ uv run alembic upgrade head
 - Verify `TELEGRAM_BOT_TOKEN` is correct in `.env`
 - Check that Telegram signature validation is not off in development
 
-- Check that Telegram signature validation is not off in development
+
 
 ### "No such table: user" or "No such table: access_request"
 
@@ -325,15 +325,6 @@ uv run alembic upgrade head
 
 ### CORS or origin errors
 
-```
-
-### Mini App loads but shows "Access is limited" unexpectedly
-
-- Check that User record exists with is_active=True: `sqlite3 sosenki.db "SELECT telegram_id, is_active FROM user WHERE telegram_id='USER_ID'"`
-- Verify user was actually approved (AccessRequest.status='approved' AND responded_at is set)
-- Check user_service.can_access_mini_app() logic
-
-### CORS or origin errors
 
 - Mini App is expected to run within Telegram client context
 - Development deeplink format: `https://t.me/[BOT_NAME]/[APP_ID]?startapp=dev`
