@@ -108,9 +108,9 @@ Phase 1 (Setup) → Phase 2 (Foundational) → [User Stories 3-5 in parallel] �
 - [x] T017 [P] Implement `distribute_with_remainder()` in `src/services/allocation_service.py` for rounding to largest share holder
 - [x] T018 [P] Implement `BalanceService` in `src/services/balance_service.py` with balance calculation logic
 - [x] T019 [P] Implement `PaymentService` base methods in `src/services/payment_service.py` (initialization, transaction editing, history retrieval)
-- [ ] T020 Unit test AllocationService allocation strategies in `tests/unit/test_allocation_service.py`
-- [ ] T021 Unit test BalanceService calculations in `tests/unit/test_balance_service.py`
-- [ ] T022 Unit test rounding algorithm in `tests/unit/test_allocation_service.py`
+- [x] T020 Unit test AllocationService allocation strategies in `tests/unit/test_allocation_service.py`
+- [x] T021 Unit test BalanceService calculations in `tests/unit/test_balance_service.py`
+- [x] T022 Unit test rounding algorithm in `tests/unit/test_allocation_service.py`
 
 ---
 

@@ -59,7 +59,7 @@ class AllocationService:
 
         # Allocate with truncation to 2 decimal places
         allocations = {}
-        remainder_total = Decimal(0)
+        allocated_total = Decimal(0)
 
         for owner_id, share_weight in share_dict.items():
             # Calculate allocation (truncate to 2 decimals)
@@ -67,13 +67,15 @@ class AllocationService:
                 Decimal("0.01"), rounding=ROUND_HALF_UP
             )
             allocations[owner_id] = allocated
-            remainder_total += (per_unit * share_weight) - allocated
+            allocated_total += allocated
 
-        # Distribute remainder cents
-        # Round up the total remainder to cents
-        remainder_cents = int((remainder_total * 100).quantize(Decimal("1")))
+        # Calculate exact remainder to distribute
+        remainder = total - allocated_total
 
-        if remainder_cents > 0:
+        if remainder > 0:
+            # Convert remainder to cents (integer)
+            remainder_cents = int(round(remainder * 100))
+
             # Sort by share weight descending (largest shares get remainder first)
             sorted_owners = sorted(
                 share_dict.items(), key=lambda x: x[1], reverse=True
