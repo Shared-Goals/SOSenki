@@ -8,6 +8,7 @@ Provides methods for:
 - Transaction history and editing (in OPEN periods)
 """
 
+import logging
 from datetime import datetime, date
 from decimal import Decimal
 from typing import Optional, List
@@ -23,6 +24,8 @@ from src.models import (
     BudgetItem,
     UtilityReading,
 )
+
+logger = logging.getLogger(__name__)
 
 
 class PaymentService:
@@ -58,12 +61,14 @@ class PaymentService:
             ValueError: If start_date >= end_date or period name already exists
         """
         if start_date >= end_date:
+            logger.error(f"Invalid period dates: start_date={start_date} >= end_date={end_date}")
             raise ValueError("start_date must be before end_date")
 
         # Check for duplicate name
         if self.db:
             existing = self.db.query(ServicePeriod).filter_by(name=name).first()
             if existing:
+                logger.error(f"Period with name '{name}' already exists")
                 raise ValueError(f"Period with name '{name}' already exists")
 
             period = ServicePeriod(
@@ -75,6 +80,7 @@ class PaymentService:
             )
             self.db.add(period)
             self.db.commit()
+            logger.info(f"Created period: {name} (ID={period.id}, dates: {start_date} to {end_date})")
             self.db.refresh(period)
             return period
         else:
@@ -202,12 +208,15 @@ class PaymentService:
             # Validate period
             period = self.db.query(ServicePeriod).filter_by(id=period_id).first()
             if not period:
+                logger.error(f"Period {period_id} not found")
                 raise ValueError(f"Period {period_id} not found")
             if period.status != PeriodStatus.OPEN:
+                logger.error(f"Cannot record contribution in closed period {period_id}")
                 raise ValueError(f"Period {period_id} is not open for contributions")
 
             # Validate amount
             if amount <= Decimal(0):
+                logger.error(f"Invalid contribution amount: {amount}")
                 raise ValueError("Contribution amount must be positive")
 
             contribution = ContributionLedger(
@@ -220,6 +229,7 @@ class PaymentService:
             self.db.add(contribution)
             self.db.commit()
             self.db.refresh(contribution)
+            logger.info(f"Recorded contribution: user_id={user_id}, amount={amount}, period_id={period_id}, tx_id={contribution.id}")
             return contribution
         return None
 

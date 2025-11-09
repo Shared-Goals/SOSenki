@@ -6,6 +6,7 @@ Provides methods for:
 - Carrying forward balances between periods
 """
 
+import logging
 from decimal import Decimal
 from typing import Dict, List, Optional, TypedDict
 
@@ -18,6 +19,8 @@ from src.models import (
     ServiceCharge,
     User,
 )
+
+logger = logging.getLogger(__name__)
 
 
 class BalanceSheetEntry(TypedDict):
@@ -231,11 +234,13 @@ class BalanceService:
         charges = self.get_period_service_charges(period_id)
 
         sheet = []
+        total_balance = Decimal(0)
         for user in users:
             contrib = contributions.get(user.id, Decimal(0))
             expense = expenses.get(user.id, Decimal(0))
             charge = charges.get(user.id, Decimal(0))
             balance = contrib - (expense + charge)
+            total_balance += balance
 
             sheet.append(BalanceSheetEntry(
                 owner_id=user.id,
@@ -246,6 +251,7 @@ class BalanceService:
                 balance=balance
             ))
 
+        logger.info(f"Generated balance sheet for period {period_id}: {len(sheet)} owners, total_balance={total_balance}")
         return sheet
 
     def get_owner_balance(self, period_id: int, owner_id: int) -> Decimal:
@@ -335,6 +341,8 @@ class BalanceService:
             if entry["balance"] != Decimal(0):
                 carried[entry["owner_id"]] = entry["balance"]
 
+        total_carried = sum(carried.values())
+        logger.info(f"Carried forward {len(carried)} balances from period {from_period_id} to {to_period_id}: total={total_carried}")
         return carried
 
     def apply_opening_balance(
@@ -358,6 +366,10 @@ class BalanceService:
             return
 
         # For opening contributions (positive balance)
+        contrib_count = 0
+        charge_count = 0
+        total_applied = Decimal(0)
+        
         for owner_id, balance in opening_balances.items():
             if balance > Decimal(0):
                 contrib = ContributionLedger(
@@ -368,6 +380,8 @@ class BalanceService:
                     comment="Opening balance from previous period"
                 )
                 self.db.add(contrib)
+                contrib_count += 1
+                total_applied += balance
 
             # For opening charges (negative balance - convert to positive for charge)
             elif balance < Decimal(0):
@@ -378,5 +392,8 @@ class BalanceService:
                     amount=-balance  # Convert negative to positive
                 )
                 self.db.add(charge)
+                charge_count += 1
+                total_applied += balance
 
         self.db.commit()
+        logger.info(f"Applied opening balances to period {period_id}: {contrib_count} contributions, {charge_count} charges, total={total_applied}")
