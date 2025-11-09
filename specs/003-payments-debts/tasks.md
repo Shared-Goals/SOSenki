@@ -324,18 +324,18 @@ Phase 1 (Setup) → Phase 2 (Foundational) → [User Stories 3-5 in parallel] �
 - [x] T106 Add input validation decorators/middleware for all endpoints in `src/api/payment.py`
 - [x] T107 Generate OpenAPI documentation for all payment endpoints in `src/api/payment.py` (docstrings, schemas)
 - [x] T108 Add logging for all financial transactions in `src/services/payment_service.py`, `allocation_service.py`, `balance_service.py`
-- [ ] T109 Create `quickstart.md` guide in `specs/003-payments-debts/quickstart.md` with setup, API examples, test scenarios
+- [x] T109 Create `quickstart.md` guide in `specs/003-payments-debts/quickstart.md` with setup, API examples, test scenarios
 - [x] T110 Create `data-model.md` documentation in `specs/003-payments-debts/data-model.md` with entity definitions and relationships
-- [ ] T111 Create `contracts/financial-api.md` with OpenAPI specification in `specs/003-payments-debts/contracts/financial-api.md`
-- [ ] T112 Run performance profiling: measure balance sheet generation time with 100+ transactions
-- [ ] T113 Run performance profiling: measure transaction recording time
-- [ ] T114 Optimize queries if needed (add indexes, query optimization)
-- [ ] T115 Create final Alembic migration including any schema adjustments from testing in `migrations/versions/003_financial_refinements.py`
+- [x] T111 Create `contracts/financial-api.md` with OpenAPI specification in `specs/003-payments-debts/contracts/financial-api.md`
+- [x] T112 Run performance profiling: measure balance sheet generation time with 100+ transactions
+- [x] T113 Run performance profiling: measure transaction recording time
+- [x] T114 Optimize queries if needed (add indexes, query optimization)
+- [x] T115 Create final Alembic migration including any schema adjustments from testing in `migrations/versions/003_financial_refinements.py`
 - [x] T116 Run full integration test suite in `tests/integration/test_financial_flows.py` to verify end-to-end flows
 - [x] T117 Run contract test suite in `tests/contract/test_payment_endpoints.py` to verify API contracts
 - [x] T118 Update main.py to register new payment API routes in `src/main.py`
-- [ ] T119 Update project README with payment feature overview and API documentation links
-- [ ] T120 Create deployment checklist and update .github/workflows/ (if applicable) for CI/CD
+- [x] T119 Update project README with payment feature overview and API documentation links
+- [x] T120 Create deployment checklist and update .github/workflows/ (if applicable) for CI/CD
 
 ---
 
