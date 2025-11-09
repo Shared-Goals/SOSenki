@@ -158,6 +158,30 @@ class MeterReadingResponse(BaseModel):
     recorded_at: datetime
 
 
+class ServiceChargeCreateRequest(BaseModel):
+    """Request to record a service charge."""
+    user_id: int
+    description: str = Field(..., min_length=1, max_length=255)
+    amount: Decimal = Field(..., gt=0, decimal_places=2)
+
+
+class ServiceChargeUpdateRequest(BaseModel):
+    """Request to update a service charge."""
+    description: Optional[str] = Field(None, min_length=1, max_length=255)
+    amount: Optional[Decimal] = Field(None, gt=0, decimal_places=2)
+
+
+class ServiceChargeResponse(BaseModel):
+    """Response with service charge details."""
+    model_config = ConfigDict(from_attributes=True)
+    
+    id: int
+    service_period_id: int
+    user_id: int
+    description: str
+    amount: Decimal
+
+
 # ============================================================================
 # Service Period Endpoints
 # ============================================================================
@@ -607,3 +631,138 @@ async def list_meter_readings(
     service = PaymentService(db=db)
     readings = service.get_meter_readings(period_id)
     return [MeterReadingResponse.model_validate(r) for r in readings]
+
+
+# ============================================================================
+# Service Charge Endpoints
+# ============================================================================
+
+@router.post("/periods/{period_id}/service-charges", response_model=ServiceChargeResponse, status_code=status.HTTP_201_CREATED)
+async def record_service_charge(
+    period_id: int,
+    request: ServiceChargeCreateRequest,
+    db: Session = Depends(lambda: None)  # TODO: Add proper DB dependency
+) -> ServiceChargeResponse:
+    """Record a service charge for a specific owner.
+
+    Args:
+        period_id: Period ID
+        request: Service charge details
+        db: Database session
+
+    Returns:
+        Recorded service charge
+
+    Raises:
+        HTTPException: If period not found, closed, or validation fails
+    """
+    service = PaymentService(db=db)
+    try:
+        charge = service.record_service_charge(
+            period_id=period_id,
+            user_id=request.user_id,
+            description=request.description,
+            amount=request.amount,
+        )
+        return ServiceChargeResponse.model_validate(charge)
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+
+
+@router.get("/periods/{period_id}/service-charges", response_model=List[ServiceChargeResponse])
+async def list_service_charges(
+    period_id: int,
+    db: Session = Depends(lambda: None)  # TODO: Add proper DB dependency
+) -> List[ServiceChargeResponse]:
+    """List all service charges for a period.
+
+    Args:
+        period_id: Period ID
+        db: Database session
+
+    Returns:
+        List of service charges
+    """
+    service = PaymentService(db=db)
+    charges = service.get_service_charges(period_id)
+    return [ServiceChargeResponse.model_validate(c) for c in charges]
+
+
+@router.get("/service-charges/{charge_id}", response_model=ServiceChargeResponse)
+async def get_service_charge(
+    charge_id: int,
+    db: Session = Depends(lambda: None)  # TODO: Add proper DB dependency
+) -> ServiceChargeResponse:
+    """Get a specific service charge by ID.
+
+    Args:
+        charge_id: Service charge ID
+        db: Database session
+
+    Returns:
+        Service charge details
+
+    Raises:
+        HTTPException: If charge not found
+    """
+    service = PaymentService(db=db)
+    charge = service.get_service_charge(charge_id)
+    if not charge:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Service charge not found")
+    return ServiceChargeResponse.model_validate(charge)
+
+
+@router.patch("/service-charges/{charge_id}", response_model=ServiceChargeResponse)
+async def update_service_charge(
+    charge_id: int,
+    request: ServiceChargeUpdateRequest,
+    db: Session = Depends(lambda: None)  # TODO: Add proper DB dependency
+) -> ServiceChargeResponse:
+    """Update a service charge.
+
+    Args:
+        charge_id: Service charge ID
+        request: Update details
+        db: Database session
+
+    Returns:
+        Updated service charge
+
+    Raises:
+        HTTPException: If charge not found or period is closed
+    """
+    service = PaymentService(db=db)
+    try:
+        charge = service.update_service_charge(
+            charge_id=charge_id,
+            description=request.description,
+            amount=request.amount,
+        )
+        if not charge:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Service charge not found")
+        return ServiceChargeResponse.model_validate(charge)
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+
+
+@router.delete("/service-charges/{charge_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_service_charge(
+    charge_id: int,
+    db: Session = Depends(lambda: None)  # TODO: Add proper DB dependency
+) -> None:
+    """Delete a service charge.
+
+    Args:
+        charge_id: Service charge ID
+        db: Database session
+
+    Raises:
+        HTTPException: If charge not found or period is closed
+    """
+    service = PaymentService(db=db)
+    try:
+        deleted = service.delete_service_charge(charge_id)
+        if not deleted:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Service charge not found")
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
