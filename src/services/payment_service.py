@@ -518,6 +518,106 @@ class PaymentService:
             )
         return []
 
+    def get_service_charge(self, charge_id: int) -> Optional[ServiceCharge]:
+        """Get a specific service charge by ID.
+
+        Args:
+            charge_id: Service charge ID
+
+        Returns:
+            ServiceCharge object or None if not found
+        """
+        if self.db:
+            return self.db.query(ServiceCharge).filter_by(id=charge_id).first()
+        return None
+
+    def get_owner_service_charges(self, period_id: int, user_id: int) -> List[ServiceCharge]:
+        """Get all service charges for a specific owner in a period.
+
+        Args:
+            period_id: Service period ID
+            user_id: Owner ID
+
+        Returns:
+            List of ServiceCharge objects for owner
+        """
+        if self.db:
+            return (
+                self.db.query(ServiceCharge)
+                .filter_by(service_period_id=period_id, user_id=user_id)
+                .all()
+            )
+        return []
+
+    def update_service_charge(
+        self,
+        charge_id: int,
+        description: Optional[str] = None,
+        amount: Optional[Decimal] = None,
+    ) -> Optional[ServiceCharge]:
+        """Update a service charge.
+
+        Args:
+            charge_id: Service charge ID
+            description: New description (optional)
+            amount: New amount (optional)
+
+        Returns:
+            Updated ServiceCharge object
+
+        Raises:
+            ValueError: If charge not found, amount invalid, or period is closed
+        """
+        if self.db:
+            charge = self.db.query(ServiceCharge).filter_by(id=charge_id).first()
+            if not charge:
+                raise ValueError(f"Service charge {charge_id} not found")
+
+            # Check period is still open
+            period = self.db.query(ServicePeriod).filter_by(id=charge.service_period_id).first()
+            if period and period.status != PeriodStatus.OPEN:
+                raise ValueError(f"Period {charge.service_period_id} is not open for updates")
+
+            if description is not None:
+                charge.description = description
+
+            if amount is not None:
+                if amount <= Decimal(0):
+                    raise ValueError("Charge amount must be positive")
+                charge.amount = amount
+
+            self.db.commit()
+            self.db.refresh(charge)
+            return charge
+        return None
+
+    def delete_service_charge(self, charge_id: int) -> bool:
+        """Delete a service charge.
+
+        Args:
+            charge_id: Service charge ID
+
+        Returns:
+            True if deleted, False if not found
+
+        Raises:
+            ValueError: If period is closed
+        """
+        if self.db:
+            charge = self.db.query(ServiceCharge).filter_by(id=charge_id).first()
+            if not charge:
+                return False
+
+            # Check period is still open
+            period = self.db.query(ServicePeriod).filter_by(id=charge.service_period_id).first()
+            if period and period.status != PeriodStatus.OPEN:
+                raise ValueError(f"Period {charge.service_period_id} is not open for deletions")
+
+            self.db.delete(charge)
+            self.db.commit()
+            return True
+        return False
+
     def get_transaction_history(
         self,
         period_id: int,
