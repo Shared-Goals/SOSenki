@@ -133,6 +133,31 @@ class BudgetItemResponse(BaseModel):
     description: Optional[str] = None
 
 
+class MeterReadingCreateRequest(BaseModel):
+    """Request to record a meter reading."""
+    meter_name: str = Field(..., min_length=1, max_length=255)
+    meter_start_reading: Decimal = Field(...)
+    meter_end_reading: Decimal = Field(...)
+    calculated_total_cost: Decimal = Field(..., ge=0, decimal_places=2)
+    unit: Optional[str] = Field(None, max_length=50)
+    description: Optional[str] = None
+
+
+class MeterReadingResponse(BaseModel):
+    """Response with meter reading details."""
+    model_config = ConfigDict(from_attributes=True)
+    
+    id: int
+    service_period_id: int
+    meter_name: str
+    meter_start_reading: Decimal
+    meter_end_reading: Decimal
+    calculated_total_cost: Decimal
+    unit: Optional[str]
+    description: Optional[str]
+    recorded_at: datetime
+
+
 # ============================================================================
 # Service Period Endpoints
 # ============================================================================
@@ -524,3 +549,61 @@ async def list_budget_items(
     service = PaymentService(db=db)
     budget_items = service.get_budget_items(period_id)
     return [BudgetItemResponse.model_validate(b) for b in budget_items]
+
+
+# ============================================================================
+# Meter Reading Endpoints
+# ============================================================================
+
+@router.post("/periods/{period_id}/meter-readings", response_model=MeterReadingResponse, status_code=status.HTTP_201_CREATED)
+async def record_meter_reading(
+    period_id: int,
+    request: MeterReadingCreateRequest,
+    db: Session = Depends(lambda: None)  # TODO: Add proper DB dependency
+) -> MeterReadingResponse:
+    """Record a meter reading for usage-based billing.
+
+    Args:
+        period_id: Period ID
+        request: Meter reading details
+        db: Database session
+
+    Returns:
+        Recorded meter reading
+
+    Raises:
+        HTTPException: If period not found or validation fails
+    """
+    service = PaymentService(db=db)
+    try:
+        reading = service.record_meter_reading(
+            period_id=period_id,
+            meter_name=request.meter_name,
+            meter_start_reading=request.meter_start_reading,
+            meter_end_reading=request.meter_end_reading,
+            calculated_total_cost=request.calculated_total_cost,
+            unit=request.unit,
+            description=request.description,
+        )
+        return MeterReadingResponse.model_validate(reading)
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+
+
+@router.get("/periods/{period_id}/meter-readings", response_model=List[MeterReadingResponse])
+async def list_meter_readings(
+    period_id: int,
+    db: Session = Depends(lambda: None)  # TODO: Add proper DB dependency
+) -> List[MeterReadingResponse]:
+    """List all meter readings for a period.
+
+    Args:
+        period_id: Period ID
+        db: Database session
+
+    Returns:
+        List of meter readings
+    """
+    service = PaymentService(db=db)
+    readings = service.get_meter_readings(period_id)
+    return [MeterReadingResponse.model_validate(r) for r in readings]
