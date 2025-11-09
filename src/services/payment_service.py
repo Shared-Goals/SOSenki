@@ -21,6 +21,7 @@ from src.models import (
     ExpenseLedger,
     ServiceCharge,
     BudgetItem,
+    UtilityReading,
 )
 
 
@@ -688,3 +689,102 @@ class PaymentService:
             self.db.refresh(budget_item)
             return budget_item
         return None
+
+    def record_meter_reading(
+        self,
+        period_id: int,
+        meter_name: str,
+        meter_start_reading: Decimal,
+        meter_end_reading: Decimal,
+        calculated_total_cost: Decimal,
+        unit: str = None,
+        description: str = None,
+    ) -> Optional[UtilityReading]:
+        """Record a meter reading for usage-based billing.
+
+        Args:
+            period_id: Service period ID
+            meter_name: Meter identifier (e.g., "Water Meter A")
+            meter_start_reading: Starting meter reading (Decimal)
+            meter_end_reading: Ending meter reading (Decimal)
+            calculated_total_cost: Total cost for consumption (must be positive)
+            unit: Unit of measurement (e.g., "m³", "kWh")
+            description: Optional notes
+
+        Returns:
+            Created UtilityReading object
+
+        Raises:
+            ValueError: If period not found or cost is invalid
+        """
+        if self.db:
+            # Validate period exists
+            period = self.db.query(ServicePeriod).filter_by(id=period_id).first()
+            if not period:
+                raise ValueError(f"Period {period_id} not found")
+
+            # Validate cost is non-negative
+            if calculated_total_cost < Decimal(0):
+                raise ValueError("Calculated total cost must be non-negative")
+
+            reading = UtilityReading(
+                service_period_id=period_id,
+                meter_name=meter_name,
+                meter_start_reading=meter_start_reading,
+                meter_end_reading=meter_end_reading,
+                calculated_total_cost=calculated_total_cost,
+                unit=unit,
+                description=description,
+                recorded_at=datetime.now(),
+            )
+            self.db.add(reading)
+            self.db.commit()
+            self.db.refresh(reading)
+            return reading
+        return None
+
+    def get_meter_readings(self, period_id: int) -> List[UtilityReading]:
+        """Get all meter readings for a period.
+
+        Args:
+            period_id: Service period ID
+
+        Returns:
+            List of UtilityReading objects
+        """
+        if self.db:
+            return (
+                self.db.query(UtilityReading)
+                .filter_by(service_period_id=period_id)
+                .all()
+            )
+        return []
+
+    def get_meter_reading(self, reading_id: int) -> Optional[UtilityReading]:
+        """Get a specific meter reading by ID.
+
+        Args:
+            reading_id: Meter reading ID
+
+        Returns:
+            UtilityReading object or None if not found
+        """
+        if self.db:
+            return self.db.query(UtilityReading).filter_by(id=reading_id).first()
+        return None
+
+    def calculate_consumption(
+        self,
+        start_reading: Decimal,
+        end_reading: Decimal,
+    ) -> Decimal:
+        """Calculate consumption from meter readings.
+
+        Args:
+            start_reading: Starting meter reading
+            end_reading: Ending meter reading
+
+        Returns:
+            Consumption (end_reading - start_reading)
+        """
+        return end_reading - start_reading
