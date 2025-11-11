@@ -10,6 +10,25 @@ from src.models import Base, Property, User
 from src.services.errors import CredentialsError
 
 
+# ============================================================================
+# TEST FIXTURES & CONSTANTS
+# ============================================================================
+
+# SECURITY NOTICE: MOCK TEST CREDENTIALS - INTENTIONALLY FAKE/INVALID
+# ⚠️  THIS IS NOT A REAL PRIVATE KEY ⚠️
+# Purpose: Testing credential file parsing and JSON structure validation only
+# Security: Base64 content is intentionally truncated and invalid by design
+#           to prevent accidental use or exposure of real credentials
+# Format: Follows Google Service Account JSON structure for realistic testing
+# Warning: NEVER use this pattern with real keys - always load from secure storage
+MOCK_INVALID_PRIVATE_KEY = (
+    "-----BEGIN RSA PRIVATE KEY-----\\n"
+    "MIIEpAIBAAKCAQEA0Z3VS5JJcds3s+4LXeI2PQQS5vbFv8P/kAIJ3z/YhCFvDg1c"
+    "\\nAgMBAAECggEAE8t5o+c/P+9dR8K/5WkFu1mDKVbQ0YqBvBJjx3YQIDAQABMA=="
+    "\\n-----END RSA PRIVATE KEY-----"
+)
+
+
 @pytest.fixture
 def db_session():
     """Create an in-memory SQLite session for testing."""
@@ -31,22 +50,17 @@ class TestGoogleSheetsClientIntegration:
         # Create a mock credentials file with intentionally fake/invalid private key
         # This is test data only - NOT a real credential
         creds_file = tmp_path / "credentials.json"
-        creds_file.write_text('''{
+        creds_file.write_text(f'''{{
             "type": "service_account",
             "project_id": "test-project",
             "private_key_id": "test-key",
-            "private_key": (
-                "-----BEGIN RSA PRIVATE KEY-----\\n"
-                "MIIEpAIBAAKCAQEA0Z3VS5JJcds3s+4LXeI2PQQS5vbFv8P/kAIJ3z/YhCFvDg1c"
-                "\\nAgMBAAECggEAE8t5o+c/P+9dR8K/5WkFu1mDKVbQ0YqBvBJjx3YQIDAQABMA=="
-                "\\n-----END RSA PRIVATE KEY-----"
-            ),
+            "private_key": "{MOCK_INVALID_PRIVATE_KEY}",
             "client_email": "test@test.iam.gserviceaccount.com",
             "client_id": "123456789",
             "auth_uri": "https://accounts.google.com/o/oauth2/auth",
             "token_uri": "https://oauth2.googleapis.com/token",
             "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs"
-        }''')
+        }}''')
 
         # Should not raise an exception
         try:
