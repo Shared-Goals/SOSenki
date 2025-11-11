@@ -128,6 +128,58 @@ tail -f logs/seed.log &  # background
 make seed                 # foreground
 ```
 
+## Understanding the "Доп" Column (Auxiliary Properties)
+
+The Google Sheet includes an optional "Доп" (Дополнительно - "Additional") column that specifies auxiliary property types. This column enables creating multiple property records for a single owner in the sheet row.
+
+### "Доп" Column Format
+
+If the "Доп" column contains a property type, an additional property record is created:
+
+| Column | Main Property | Auxiliary Property |
+|--------|---------------|-------------------|
+| Фамилия (Owner) | П | П |
+| Адрес (Address) | ул. Пушкина, д. 1 | - |
+| Готовность (Ready) | Да | Да |
+| **Доп** | *(empty)* | **Большой** |
+
+**Result**: Owner "П" gets TWO property records:
+1. Main: "ул. Пушкина, д. 1" (type: empty, share_weight: from sheet)
+2. Auxiliary: unnamed (type: "Большой", share_weight: NULL, for_tenant: false)
+
+### Supported "Доп" Types
+
+```
+- "Большой" (Large House)
+- "Малый" (Small House)
+- "Беседка" (Gazebo)
+- "Хоздвор" (Farm Building)
+- "Склад" (Warehouse)
+- "Баня" (Bathhouse)
+```
+
+### Auxiliary Property Behavior
+
+**Inherited from main property**:
+- `owner_id` - Same owner
+- `is_ready` - From "Готовность" column
+- `is_for_tenant` - From sheet (typically false)
+
+**Set to NULL/Default**:
+- `share_weight` - NULL (auxiliary structures don't get allocation shares)
+- `photo_link` - NULL
+- `sale_price` - NULL
+
+### Example Seeding Output
+
+```
+✓ Users created: 20
+✓ Main properties created: 65
+✓ Auxiliary properties created: 12 (from "Доп" column)
+✓ Total properties: 77
+✓ Execution time: 2.3s
+```
+
 ## Troubleshooting
 
 ### Error: "Credentials file not found"
