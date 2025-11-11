@@ -55,7 +55,7 @@ This guide walks you through setting up and running the database seeding tool, w
 
 ```bash
 # From project root
-cd /Users/serpo/Work/SOSenki
+cd path/to/SOSenki
 
 # Install project dependencies (includes google-auth, google-api-python-client)
 uv sync
