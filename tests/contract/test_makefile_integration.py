@@ -59,7 +59,8 @@ class TestMakefileIntegration:
     def test_make_seed_target_exists_and_is_callable(self):
         """Test that `make seed` target exists and can be invoked (T036, T038)."""
         # Check that the target exists in the Makefile
-        makefile = Path("/Users/serpo/Work/SOSenki/Makefile")
+        project_root = self.get_project_root()
+        makefile = project_root / "Makefile"
         assert makefile.exists(), "Makefile not found"
 
         makefile_content = makefile.read_text()
@@ -72,7 +73,8 @@ class TestMakefileIntegration:
 
     def test_makefile_seed_documentation(self):
         """Test that Makefile seed target has clear documentation (T037)."""
-        makefile = Path("/Users/serpo/Work/SOSenki/Makefile")
+        project_root = self.get_project_root()
+        makefile = project_root / "Makefile"
         makefile_content = makefile.read_text()
 
         # Find the seed target section (including comments above it)
@@ -98,7 +100,8 @@ class TestMakefileIntegration:
 
     def test_make_phony_targets_include_seed(self):
         """Test that .PHONY includes seed target (T036)."""
-        makefile = Path("/Users/serpo/Work/SOSenki/Makefile")
+        project_root = self.get_project_root()
+        makefile = project_root / "Makefile"
         makefile_content = makefile.read_text()
 
         # Find .PHONY declaration
@@ -113,7 +116,8 @@ class TestMakefileIntegration:
 
     def test_make_seed_uses_uv_and_python_cli(self):
         """Test that make seed properly invokes CLI via uv (T036)."""
-        makefile = Path("/Users/serpo/Work/SOSenki/Makefile")
+        project_root = self.get_project_root()
+        makefile = project_root / "Makefile"
         makefile_content = makefile.read_text()
 
         # Find seed target
@@ -130,7 +134,8 @@ class TestMakefileIntegration:
 
     def test_makefile_seed_has_echo_statements_for_ux(self):
         """Test that seed target has helpful echo statements (T037)."""
-        makefile = Path("/Users/serpo/Work/SOSenki/Makefile")
+        project_root = self.get_project_root()
+        makefile = project_root / "Makefile"
         makefile_content = makefile.read_text()
 
         # Find seed target
@@ -144,9 +149,10 @@ class TestMakefileIntegration:
 
     def test_help_target_includes_seed_section(self):
         """Test that help target includes dedicated section for seeding (T039)."""
+        project_root = self.get_project_root()
         result = subprocess.run(
             ["make", "help"],
-            cwd="/Users/serpo/Work/SOSenki",
+            cwd=str(project_root),
             capture_output=True,
             text=True,
         )
@@ -166,7 +172,8 @@ class TestMakefileIntegration:
 
     def test_makefile_lint_target_exists(self):
         """Test that lint target exists for code style validation (related to Phase 4)."""
-        makefile = Path("/Users/serpo/Work/SOSenki/Makefile")
+        project_root = self.get_project_root()
+        makefile = project_root / "Makefile"
         makefile_content = makefile.read_text()
 
         assert "lint:" in makefile_content, "lint target not found in Makefile"
@@ -176,7 +183,8 @@ class TestMakefileIntegration:
 
     def test_makefile_has_standard_targets(self):
         """Test that Makefile includes standard development targets."""
-        makefile = Path("/Users/serpo/Work/SOSenki/Makefile")
+        project_root = self.get_project_root()
+        makefile = project_root / "Makefile"
         makefile_content = makefile.read_text()
 
         required_targets = ["help", "install", "test", "lint", "format", "seed"]
