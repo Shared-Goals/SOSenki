@@ -12,16 +12,18 @@
 
 This document defines all implementation tasks for the Mini App Dashboard Redesign feature. Tasks are organized by phase and user story to enable independent development and testing.
 
-### Quick Stats
+## Quick Stats
 
 - **Total Tasks**: 40
 - **Setup & Foundational**: 10 tasks (including share_percentage backend)
-- **User Story 1 (Compact Menu)**: 5 tasks
-- **User Story 2 (Display Statuses)**: 5 tasks
-- **User Story 3 (Stakeholder Status for Owners)**: 3 tasks
-- **User Story 4 (Stakeholder Link for Owners)**: 3 tasks
-- **User Story 5 (Future Placeholders)**: 2 tasks
+- **User Story 1 (Compact Menu)**: 5 tasks ✅ **COMPLETE**
+- **User Story 2 (Display Statuses)**: 5 tasks ✅ **COMPLETE**
+- **User Story 3 (Stakeholder Status for Owners)**: 3 tasks ✅ **COMPLETE**
+- **User Story 4 (Stakeholder Link for Owners)**: 3 tasks ✅ **COMPLETE**
+- **User Story 5 (Future Placeholders)**: 2 tasks (Optional P2)
 - **Polish & Integration**: 12 tasks
+
+**Progress**: 27/40 = 67.5% ✅ **MVP FEATURES COMPLETE**
 
 ### MVP Scope
 
@@ -72,11 +74,11 @@ Phase 8: Polish & Integration
 
 Initialize project and validate environment.
 
-- [ ] T001 Verify Python environment is Python 3.11+ and FastAPI dependencies installed in `src/`
-- [ ] T002 Verify existing User model with role flags in `src/models/user.py`
-- [ ] T003 Add STAKEHOLDER_SHARES_URL environment variable to `.env` (set to example URL)
-- [ ] T004 Verify WebApp authentication mechanism in existing mini_app routes
-- [ ] T005 Back up existing `src/static/mini_app/index.html` to `index.html.bak`
+- [x] T001 Verify Python environment is Python 3.11+ and FastAPI dependencies installed in `src/`
+- [x] T002 Verify existing User model with role flags in `src/models/user.py`
+- [x] T003 Add STAKEHOLDER_SHARES_URL environment variable to `.env` (set to example URL)
+- [x] T004 Verify WebApp authentication mechanism in existing mini_app routes
+- [x] T005 Back up existing `src/static/mini_app/index.html` to `index.html.bak`
 
 ---
 
@@ -84,12 +86,12 @@ Initialize project and validate environment.
 
 Create shared backend endpoint and service layer for all user story tasks.
 
-- [ ] T006 Create UserStatusService class in `src/services/user_service.py` with `get_active_roles(user: User) -> List[str]` method
-- [ ] T007 [P] Add `get_share_percentage(user: User) -> Optional[int]` method to UserStatusService in `src/services/user_service.py` (returns 1 for signed, 0 for unsigned owner, None for non-owner)
-- [ ] T008 [P] Create Pydantic model `UserStatusResponse` in `src/api/mini_app.py` with user_id, roles, stakeholder_url, and share_percentage fields
-- [ ] T009 [P] Add `/api/mini-app/user-status` GET endpoint in `src/api/mini_app.py` that calls UserStatusService methods and returns UserStatusResponse
-- [ ] T010 [P] Add contract test for UserStatusResponse schema in `tests/contract/test_mini_app_endpoints.py` (validate share_percentage is int/null)
-- [ ] T011 Add integration test for `/api/mini-app/user-status` endpoint in `tests/integration/test_approval_flow_to_mini_app.py`
+- [x] T006 Create UserStatusService class in `src/services/user_service.py` with `get_active_roles(user: User) -> List[str]` method
+- [x] T007 [P] Add `get_share_percentage(user: User) -> Optional[int]` method to UserStatusService in `src/services/user_service.py` (returns 1 for signed, 0 for unsigned owner, None for non-owner)
+- [x] T008 [P] Create Pydantic model `UserStatusResponse` in `src/api/mini_app.py` with user_id, roles, stakeholder_url, and share_percentage fields
+- [x] T009 [P] Add `/api/mini-app/user-status` GET endpoint in `src/api/mini_app.py` that calls UserStatusService methods and returns UserStatusResponse
+- [x] T010 [P] Add contract test for UserStatusResponse schema in `tests/contract/test_mini_app_endpoints.py` (validate share_percentage is int/null)
+- [x] T011 Add integration test for `/api/mini-app/user-status` endpoint in `tests/integration/test_approval_flow_to_mini_app.py`
 
 ---
 
@@ -101,11 +103,11 @@ Redesign menu (Rule, Pay, Invest) to occupy ≤30% of viewport height using CSS 
 **Independent Test**: Menu renders in compact horizontal layout without scrolling on mobile 375px+  
 **Acceptance**: Menu buttons visible, functional, responsive on 320px-1920px viewports; horizontal row layout on all viewports
 
-- [ ] T012 [P] [US1] Update menu CSS in `src/static/mini_app/styles.css` with `.menu-grid` flexbox styles (display: flex, justify-content: space-around, flex-wrap: nowrap for horizontal layout)
-- [ ] T013 [P] [US1] Update menu CSS responsive breakpoints for 320px, 375px, and 768px viewports in `src/static/mini_app/styles.css` with horizontal menu maintained across all sizes
-- [ ] T014 [US1] Update HTML structure in `src/static/mini_app/index.html` to wrap menu items in `.menu-grid` container with horizontal layout class
-- [ ] T015 [US1] Verify menu buttons (Rule, Pay, Invest) remain clickable and functional after layout changes
-- [ ] T016 [US1] Add CSS styles for `.menu-item` styling (padding: 10-15px, border: 1px solid, background: #f5f5f5, border-radius: 8px, text-align: center) in `src/static/mini_app/styles.css`
+- [x] T012 [P] [US1] Update menu CSS in `src/static/mini_app/styles.css` with `.menu-grid` flexbox styles (display: flex, justify-content: space-around, flex-wrap: nowrap for horizontal layout)
+- [x] T013 [P] [US1] Update menu CSS responsive breakpoints for 320px, 375px, and 768px viewports in `src/static/mini_app/styles.css` with horizontal menu maintained across all sizes
+- [x] T014 [US1] Update HTML structure in `src/static/mini_app/index.html` to wrap menu items in `.menu-grid` container with horizontal layout class
+- [x] T015 [US1] Verify menu buttons (Rule, Pay, Invest) remain clickable and functional after layout changes
+- [x] T016 [US1] Add CSS styles for `.menu-item` styling (padding: 10-15px, border: 1px solid, background: #f5f5f5, border-radius: 8px, text-align: center) in `src/static/mini_app/styles.css`
 
 ---
 
@@ -117,11 +119,11 @@ Display user roles on dashboard below compact menu using badges.
 **Independent Test**: Dashboard loads and displays current user's roles correctly for different role combinations  
 **Acceptance**: All applicable roles visible as badges with defined styling; "Member" badge never shown (all users have at least one role)
 
-- [ ] T017 [P] [US2] Add `renderUserStatuses(roles)` function in `src/static/mini_app/app.js` to create badge elements from role array with capitalized labels (e.g., "Investor" not "investor")
-- [ ] T018 [P] [US2] Add `.status-badges` and `.badge` CSS styles in `src/static/mini_app/styles.css` (background: #e3f2fd, color: #1976d2, padding: 5px 10px, margin: 5px, border-radius: 4px, font-size: 12px)
-- [ ] T019 [US2] Add `loadUserStatus()` async function in `src/static/mini_app/app.js` to fetch from `/api/mini-app/user-status` with error handling
-- [ ] T020 [US2] Add statuses container `<section id="statuses-container" class="status-badges">` to welcome template in `src/static/mini_app/index.html`
-- [ ] T021 [US2] Call `loadUserStatus()` on page load after welcome template renders in `src/static/mini_app/app.js`
+- [x] T017 [P] [US2] Add `renderUserStatuses(roles)` function in `src/static/mini_app/app.js` to create badge elements from role array with capitalized labels (e.g., "Investor" not "investor")
+- [x] T018 [P] [US2] Add `.status-badges` and `.badge` CSS styles in `src/static/mini_app/styles.css` (background: #e3f2fd, color: #1976d2, padding: 5px 10px, margin: 5px, border-radius: 4px, font-size: 12px)
+- [x] T019 [US2] Add `loadUserStatus()` async function in `src/static/mini_app/app.js` to fetch from `/api/mini-app/user-status` with error handling
+- [x] T020 [US2] Add statuses container `<section id="statuses-container" class="status-badges">` to welcome template in `src/static/mini_app/index.html`
+- [x] T021 [US2] Call `loadUserStatus()` on page load after welcome template renders in `src/static/mini_app/app.js`
 
 ---
 
@@ -133,9 +135,9 @@ Show stakeholder contract status indicator (1=signed, 0=unsigned) for users with
 **Independent Test**: Users with is_owner=True see "Stakeholder" badge with status indicator; non-owners don't  
 **Acceptance**: Stakeholder badge displayed first in role badges list with distinct background color (#fff3e0 for unsigned, #c8e6c9 for signed)
 
-- [ ] T022 [P] [US3] Add `get_share_percentage()` call to UserStatusService in backend; update T007 implementation to populate share_percentage in response
-- [ ] T023 [US3] Update `renderUserStatuses(roles)` in T017 to check share_percentage and render "Stakeholder (Unsigned)" or "Stakeholder (Signed)" badge first with conditional styling
-- [ ] T024 [US3] Update `.badge` CSS in T018 to add conditional class `.badge-unsigned` (background: #fff3e0) and `.badge-signed` (background: #c8e6c9) for stakeholder status indication
+- [x] T022 [P] [US3] Add `get_share_percentage()` call to UserStatusService in backend; update T007 implementation to populate share_percentage in response
+- [x] T023 [US3] Update `renderUserStatuses(roles)` in T017 to check share_percentage and render "Stakeholder (Unsigned)" or "Stakeholder (Signed)" badge first with conditional styling
+- [x] T024 [US3] Update `.badge` CSS in T018 to add conditional class `.badge-unsigned` (background: #fff3e0) and `.badge-signed` (background: #c8e6c9) for stakeholder status indication
 
 ---
 
@@ -147,9 +149,9 @@ Display link to stakeholder shares document for owners only.
 **Independent Test**: Stakeholder link appears for users with is_owner=True; link hidden for non-owners and if URL not configured  
 **Acceptance**: Link visible and clickable for owners; hidden for non-owners and when stakeholder_url is null
 
-- [ ] T025 [P] [US4] Add `renderStakeholderLink(url, isOwner)` function in `src/static/mini_app/app.js` to render link only if url is not null AND user is owner (checking `isOwner=True` and url is not empty string)
-- [ ] T026 [P] [US4] Add `.stakeholder-link` CSS styles in `src/static/mini_app/styles.css` (padding: 10px, background: #fff3e0, border-radius: 8px, margin-top: 15px, text-align: center, color: #f57c00, text-decoration: none, font-weight: 500)
-- [ ] T027 [US4] Add stakeholder link container `<section id="stakeholder-link-container">` to welcome template in `src/static/mini_app/index.html` (empty by default, populated by renderStakeholderLink if URL exists)
+- [x] T025 [P] [US4] Add `renderStakeholderLink(url, isOwner)` function in `src/static/mini_app/app.js` to render link only if url is not null AND user is owner (checking `isOwner=True` and url is not empty string)
+- [x] T026 [P] [US4] Add `.stakeholder-link` CSS styles in `src/static/mini_app/styles.css` (padding: 10px, background: #fff3e0, border-radius: 8px, margin-top: 15px, text-align: center, color: #f57c00, text-decoration: none, font-weight: 500)
+- [x] T027 [US4] Add stakeholder link container `<section id="stakeholder-link-container">` to welcome template in `src/static/mini_app/index.html` (empty by default, populated by renderStakeholderLink if URL exists)
 
 ---
 
