@@ -12,6 +12,24 @@ tg.ready();
 // Get app container
 const appContainer = document.getElementById('app');
 
+// Global error handler
+window.addEventListener('error', (event) => {
+    console.error('Uncaught error:', event.error);
+    renderError(
+        'An unexpected error occurred',
+        event.error
+    );
+});
+
+// Unhandled promise rejection handler
+window.addEventListener('unhandledrejection', (event) => {
+    console.error('Unhandled rejection:', event.reason);
+    renderError(
+        'An unexpected error occurred',
+        event.reason instanceof Error ? event.reason : new Error(String(event.reason))
+    );
+});
+
 /**
  * Render welcome screen for registered user
  */
@@ -60,13 +78,40 @@ function renderAccessDenied(data) {
 /**
  * Render error screen
  */
-function renderError(message) {
+function renderError(message, error = null) {
     const template = document.getElementById('error-template');
     const content = template.content.cloneNode(true);
     
     // Set error message
     const errorMessageEl = content.getElementById('error-message');
     errorMessageEl.textContent = message || 'Please try again later.';
+    
+    // Collect debug info
+    const debugInfo = {
+        timestamp: new Date().toISOString(),
+        userAgent: navigator.userAgent,
+        platform: navigator.platform,
+        url: window.location.href,
+        message: message,
+        error: error ? {
+            message: error.message,
+            stack: error.stack,
+            name: error.name
+        } : null,
+        telegramWebApp: {
+            ready: tg.isExpanded,
+            version: tg.version || 'unknown',
+            platform: tg.platform || 'unknown',
+            initData: tg.initData ? '✓ present' : '✗ missing'
+        }
+    };
+    
+    // Display debug info
+    const debugInfoEl = content.getElementById('debug-info');
+    debugInfoEl.textContent = JSON.stringify(debugInfo, null, 2);
+    
+    // Log to console
+    console.error('Mini App Error:', debugInfo);
     
     // Clear and render
     appContainer.innerHTML = '';
