@@ -338,3 +338,38 @@ body {
 .stakeholder-link:active {
     transform: translateY(0);
 }
+
+/* Placeholder Sections (Future Features) */
+.placeholder-section {
+    background-color: #f9f9f9;
+    border: 1px dashed #ccc;
+    border-radius: 8px;
+    padding: 15px;
+    margin-top: 15px;
+    margin-left: var(--spacing-sm);
+    margin-right: var(--spacing-sm);
+    text-align: center;
+    color: var(--color-text-secondary);
+}
+
+.placeholder-section h2 {
+    font-size: 16px;
+    font-weight: 600;
+    margin-bottom: 8px;
+    color: var(--color-text);
+}
+
+.placeholder-section p {
+    font-size: 14px;
+    color: var(--color-text-secondary);
+    margin: 0;
+}
+
+@media (max-width: 375px) {
+    .placeholder-section {
+        margin-left: var(--spacing-xs);
+        margin-right: var(--spacing-xs);
+        padding: 12px;
+    }
+}
+
