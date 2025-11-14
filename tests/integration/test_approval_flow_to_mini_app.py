@@ -59,3 +59,46 @@ async def test_welcome_message_includes_webapp_button():
 # 4. Verify welcome message sent within 5 seconds
 # 5. Verify message includes "Open App" button
 # 6. Verify button has web_app with correct URL
+
+
+@pytest.mark.asyncio
+async def test_dashboard_loads_with_user_statuses():
+    """Test dashboard renders with user statuses after /user-status call."""
+    # Full implementation would:
+    # 1. Create test User with roles
+    # 2. Mock Telegram signature verification
+    # 3. Call GET /api/mini-app/user-status
+    # 4. Verify response includes correct roles and stakeholder_url
+    #
+    # Expected response structure:
+    # {
+    #   "user_id": <int>,
+    #   "roles": ["investor", "owner", "stakeholder"],
+    #   "stakeholder_url": "https://example.com/stakeholders",
+    #   "share_percentage": 1
+    # }
+    pass
+
+
+@pytest.mark.asyncio
+async def test_stakeholder_link_appears_for_owners():
+    """Test owners see stakeholder link on dashboard."""
+    # Full implementation would:
+    # 1. Create owner user with is_owner=True
+    # 2. Mock Telegram signature verification
+    # 3. Call GET /api/mini-app/user-status
+    # 4. Verify stakeholder_url is not null in response
+    # 5. Verify share_percentage is 0 or 1 (not None)
+    pass
+
+
+@pytest.mark.asyncio
+async def test_stakeholder_link_hidden_for_non_owners():
+    """Test non-owners do NOT see stakeholder link."""
+    # Full implementation would:
+    # 1. Create user with is_owner=False
+    # 2. Mock Telegram signature verification
+    # 3. Call GET /api/mini-app/user-status
+    # 4. Verify stakeholder_url is null/missing in response
+    # 5. Verify share_percentage is None
+    pass

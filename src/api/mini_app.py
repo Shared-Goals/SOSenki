@@ -5,16 +5,31 @@ import logging
 from typing import Any
 
 from fastapi import APIRouter, Depends, Header, HTTPException
+from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.bot.config import bot_config
 from src.services import get_async_session
-from src.services.user_service import UserService
+from src.services.user_service import UserService, UserStatusService
 
 logger = logging.getLogger(__name__)
 
 # Create router for Mini App endpoints
 router = APIRouter(prefix="/api/mini-app", tags=["mini-app"])
+
+
+# Response schemas
+class UserStatusResponse(BaseModel):
+    """Response schema for user status endpoint."""
+
+    user_id: int
+    roles: list[str]  # e.g., ["investor", "owner", "stakeholder"]
+    stakeholder_url: str | None  # URL from environment, may be null
+    share_percentage: int | None  # 1 (signed), 0 (unsigned owner), None (non-owner)
+
+    class Config:
+        """Pydantic config."""
+        from_attributes = True
 
 
 @router.get("/init")
@@ -212,6 +227,81 @@ async def menu_action(
         raise
     except Exception as e:
         logger.error(f"Error in /api/mini-app/menu-action: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Server error") from e
+
+
+@router.get("/user-status", response_model=UserStatusResponse)
+async def get_user_status(
+    x_telegram_init_data: str = Header(..., alias="X-Telegram-Init-Data"),
+    session: AsyncSession = Depends(get_async_session)
+) -> UserStatusResponse:
+    """
+    Get current user's status information for dashboard display.
+
+    Returns user's active roles, stakeholder contract status (for owners),
+    and stakeholder shares link (for owners only).
+
+    Args:
+        x_telegram_init_data: Telegram WebApp initData (signature verification)
+        session: Database session
+
+    Returns:
+        UserStatusResponse with user_id, roles, stakeholder_url, share_percentage
+
+    Raises:
+        401: Invalid Telegram signature
+        403: User not registered or inactive
+        500: Server error
+    """
+    try:
+        # Verify Telegram signature
+        parsed_data = UserService.verify_telegram_webapp_signature(
+            init_data=x_telegram_init_data,
+            bot_token=bot_config.telegram_bot_token
+        )
+
+        if not parsed_data:
+            logger.warning("Invalid Telegram signature in /api/mini-app/user-status")
+            raise HTTPException(status_code=401, detail="Invalid Telegram signature")
+
+        # Extract telegram_id from parsed data
+        user_data = json.loads(parsed_data.get('user', '{}'))
+        telegram_id = str(user_data.get('id'))
+
+        if not telegram_id:
+            raise HTTPException(status_code=401, detail="No user ID in init data")
+
+        # Get user from database
+        user_service = UserService(session)
+        user = await user_service.get_by_telegram_id(telegram_id)
+
+        if not user or not user.is_active:
+            logger.warning(f"Unauthorized access attempt: telegram_id={telegram_id}")
+            raise HTTPException(status_code=403, detail="User not registered or inactive")
+
+        # Get active roles
+        roles = UserStatusService.get_active_roles(user)
+
+        # Get stakeholder URL from environment (for owners only)
+        import os
+        stakeholder_url = None
+        if user.is_owner:
+            stakeholder_url = os.getenv("STAKEHOLDER_SHARES_URL")
+
+        # Get share percentage (for owners only)
+        share_percentage = UserStatusService.get_share_percentage(user)
+
+        return UserStatusResponse(
+            user_id=user.id,
+            roles=roles,
+            stakeholder_url=stakeholder_url,
+            share_percentage=share_percentage
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error in /api/mini-app/user-status: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail="Server error") from e
 
 

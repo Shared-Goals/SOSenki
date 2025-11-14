@@ -195,4 +195,69 @@ class UserService:
         return user
 
 
-__all__ = ["UserService"]
+class UserStatusService:
+    """Service for computing user status information for dashboard display."""
+
+    @staticmethod
+    def get_active_roles(user: User) -> list[str]:
+        """
+        Extract active roles from User model as human-readable labels.
+
+        Returns list of role strings or ["member"] if no roles assigned.
+        Roles are sorted alphabetically for consistency.
+
+        Args:
+            user: User object with role flags
+
+        Returns:
+            List of active role names (lowercase), minimum ["member"]
+        """
+        roles = []
+
+        # Check each role flag
+        if user.is_administrator:
+            roles.append("administrator")
+        if user.is_investor:
+            roles.append("investor")
+        if user.is_owner:
+            roles.append("owner")
+        if user.is_staff:
+            roles.append("staff")
+        if user.is_stakeholder and user.is_owner:  # stakeholder only meaningful for owners
+            roles.append("stakeholder")
+        if user.is_tenant:
+            roles.append("tenant")
+
+        # If no roles, return ["member"]
+        if not roles:
+            roles.append("member")
+
+        # Sort alphabetically for consistency
+        return sorted(roles)
+
+    @staticmethod
+    def get_share_percentage(user: User) -> Optional[int]:
+        """
+        Calculate stakeholder contract status indicator (CALCULATED FIELD - not stored).
+
+        Derived from existing User model flags: is_owner and is_stakeholder.
+
+        Returns:
+        - 1 if user is an owner with signed stakeholder contract (is_owner=True AND is_stakeholder=True)
+        - 0 if user is an owner without signed stakeholder contract (is_owner=True AND is_stakeholder=False)
+        - None if user is not an owner (is_owner=False)
+
+        NOTE: This field is computed in the API response layer only; no database column required.
+
+        Args:
+            user: User object
+
+        Returns:
+            1 (signed), 0 (unsigned), or None (not an owner)
+        """
+        if not user.is_owner:
+            return None
+        return 1 if user.is_stakeholder else 0
+
+
+__all__ = ["UserService", "UserStatusService"]
