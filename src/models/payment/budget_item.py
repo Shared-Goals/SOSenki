@@ -1,5 +1,7 @@
 """Budget item model - allocation strategy definitions."""
 
+from __future__ import annotations
+
 from enum import Enum
 
 from sqlalchemy import Enum as SQLEnum

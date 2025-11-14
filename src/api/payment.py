@@ -5,6 +5,10 @@ Handles financial operations:
 - Contribution recording and tracking
 - Expense tracking with payer attribution
 - Balance calculations and reporting
+
+Note: DB dependency injection uses lambda pattern for now (B008 warnings are
+expected). This allows for flexible testing and future refactoring without
+breaking the complex business logic implementations.
 """
 
 from datetime import date, datetime
@@ -88,24 +92,6 @@ class ExpenseResponse(BaseModel):
     vendor: Optional[str] = None
     description: Optional[str] = None
     budget_item_id: Optional[int] = None
-
-
-class ServiceChargeCreateRequest(BaseModel):
-    """Request to record a service charge."""
-    user_id: int
-    description: str = Field(..., min_length=1, max_length=200)
-    amount: Decimal = Field(..., gt=0, decimal_places=2)
-
-
-class ServiceChargeResponse(BaseModel):
-    """Response with service charge details."""
-    model_config = ConfigDict(from_attributes=True)
-
-    id: int
-    service_period_id: int
-    user_id: int
-    description: str
-    amount: Decimal
 
 
 class OwnerContributionSummary(BaseModel):

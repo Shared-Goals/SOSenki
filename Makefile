@@ -30,6 +30,8 @@ help:
 	@echo "  make help              Show this help message"
 	@echo "  make install           Install dependencies via uv"
 	@echo "  make test              Run all tests (contract, integration, unit)"
+	@echo "  make test-contract     Run Mini App contract tests only"
+	@echo "  make test-mini-app     Run Mini App tests (contract + integration)"
 	@echo "  make lint              Check code style with ruff"
 	@echo "  make format            Format code with ruff and prettier"
 	@echo "  make seed              Seed database from Google Sheets (OFFLINE ONLY)"
@@ -51,6 +53,12 @@ install:
 
 test:
 	uv run pytest tests/ -v
+
+test-contract:
+	uv run pytest tests/contract/test_mini_app_endpoints.py -v
+
+test-mini-app:
+	uv run pytest tests/contract/test_mini_app_endpoints.py tests/integration/test_approval_flow_to_mini_app.py -v
 
 lint:
 	uv run ruff check .
