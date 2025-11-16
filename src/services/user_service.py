@@ -192,6 +192,10 @@ class UserService:
 class UserStatusService:
     """Service for computing user status information for dashboard display."""
 
+    def __init__(self, session: AsyncSession):
+        """Initialize with database session for async operations."""
+        self.session = session
+
     @staticmethod
     def get_active_roles(user: User) -> list[str]:
         """
@@ -252,6 +256,21 @@ class UserStatusService:
         if not user.is_owner:
             return None
         return 1 if user.is_stakeholder else 0
+
+    async def get_represented_user(self, user_id: int) -> Optional[User]:
+        """
+        Get the user that this user represents (delegation).
+
+        Args:
+            user_id: ID of the representing user
+
+        Returns:
+            User object if representative_id exists, None otherwise
+        """
+        user = await self.session.get(User, user_id)
+        if not user or not user.representative_id:
+            return None
+        return await self.session.get(User, user.representative_id)
 
 
 __all__ = ["UserService", "UserStatusService"]
