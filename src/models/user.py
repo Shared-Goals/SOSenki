@@ -2,7 +2,7 @@
 
 from datetime import datetime, timezone
 
-from sqlalchemy import Boolean, DateTime, Index, String
+from sqlalchemy import Boolean, DateTime, Index, String, ForeignKey, Integer
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from src.models import Base, BaseModel
@@ -88,6 +88,14 @@ class User(Base, BaseModel):
         comment="PRIMARY Mini App access gate - can access Mini App if True",
     )
 
+    # User representation (delegation)
+    representative_id: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id"),
+        nullable=True,
+        index=True,
+        comment="User ID of the person this user represents",
+    )
+
     # Timestamps
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
@@ -111,6 +119,11 @@ class User(Base, BaseModel):
     )
 
     # Relationships
+    representative: Mapped["User | None"] = relationship(
+        "User",
+        remote_side="User.id",
+        doc="The user this user represents (self-referential)",
+    )
     properties: Mapped[list["Property"]] = relationship(  # noqa: F821
         "Property",
         back_populates="owner",

@@ -1,10 +1,16 @@
-# TODO List of payments and debt on first page
 
+## TODO Properties list
+
+## TODO User management from bot - list, change - active/inactive, role, 
+## TODO Vendor payments
 # TODO Service periods
 # TODO Electricity readings
+# TODO Debt on first page
 # TODO Balance for accounts
 
 # TODO Invest part
+# TODO Production from main and Dev from dev
+# TODO Rule part with Job descriptions
 
 # TODO Remove /specs when finished and make git-filter-repo to clean history
 

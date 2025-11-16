@@ -261,12 +261,12 @@ function renderPaymentTransactions(payments) {
 async function loadUserStatus() {
     try {
         const initData = tg.initData;
-        
+
         if (!initData) {
             console.error('No Telegram init data available');
             return;
         }
-        
+
         // Fetch user status from backend
         const response = await fetch('/api/mini-app/user-status', {
             method: 'GET',
@@ -275,23 +275,31 @@ async function loadUserStatus() {
                 'Content-Type': 'application/json'
             }
         });
-        
+
         if (!response.ok) {
             console.error('Failed to load user status:', response.status, response.statusText);
             return;
         }
-        
+
         const data = await response.json();
-        
-        // Render user roles as badges
-        if (data.roles && Array.isArray(data.roles)) {
-            renderUserStatuses(data.roles);
+
+        // Determine if user is representing someone else
+        const isRepresenting = data.representative_of !== null && data.represented_user_roles !== null;
+
+        // Use represented user's roles if representing, otherwise use authenticated user's roles
+        const rolesToDisplay = isRepresenting ? data.represented_user_roles : data.roles;
+        if (rolesToDisplay && Array.isArray(rolesToDisplay)) {
+            renderUserStatuses(rolesToDisplay);
         }
-        
-        // Render stakeholder link for owners only
-        const isOwner = data.share_percentage !== null; // Owner if share_percentage is 1 or 0 (not null)
-        renderStakeholderLink(data.stakeholder_url || null, isOwner, data.share_percentage);
-        
+
+        // Use represented user's share percentage if representing, otherwise use authenticated user's
+        const sharePercentageToDisplay = isRepresenting ? data.represented_user_share_percentage : data.share_percentage;
+        const isOwner = sharePercentageToDisplay !== null; // Owner if share_percentage is 1 or 0 (not null)
+        renderStakeholderLink(data.stakeholder_url || null, isOwner, sharePercentageToDisplay);
+
+        // Render representative info (always call to ensure proper hiding when no data)
+        renderRepresentativeInfo(data.representative_of || null);
+
     } catch (error) {
         console.error('Error loading user status:', error);
     }
@@ -350,6 +358,38 @@ function renderStakeholderLink(url, isOwner = false, sharePercentage = null) {
     }
     
     container.appendChild(section);
+}
+
+/**
+ * Render representative info (if user represents someone)
+ * @param {Object|null} representativeOf - Representative info object with user_id, name, telegram_id
+ */
+function renderRepresentativeInfo(representativeOf) {
+    const container = document.getElementById('representative-info-container');
+    if (!container) {
+        console.warn('Representative info container not found');
+        return;
+    }
+    
+    // Clear existing content
+    container.innerHTML = '';
+    
+    // Only render if representative_of data exists
+    if (!representativeOf || !representativeOf.name) {
+        // Hide the container when there's no representative info
+        container.style.display = 'none';
+        return;
+    }
+    
+    // Show the container when there is representative info
+    container.style.display = 'flex';
+    
+    // Create one-liner: "Represents [Name]"
+    const representsText = document.createElement('div');
+    representsText.className = 'representative-info-text';
+    representsText.textContent = `Represents ${representativeOf.name}`;
+    
+    container.appendChild(representsText);
 }
 
 /**

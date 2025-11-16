@@ -30,6 +30,9 @@ class UserStatusResponse(BaseModel):
     roles: list[str]  # e.g., ["investor", "owner", "stakeholder"]
     stakeholder_url: str | None  # URL from environment, may be null
     share_percentage: int | None  # 1 (signed), 0 (unsigned owner), None (non-owner)
+    representative_of: dict[str, int | str | None] | None = None  # User being represented, if any
+    represented_user_roles: list[str] | None = None  # Roles of represented user if representing someone
+    represented_user_share_percentage: int | None = None  # Share percentage of represented user if representing someone
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -302,11 +305,20 @@ async def get_user_payments(
             logger.warning(f"Unauthorized access attempt: telegram_id={telegram_id}")
             raise HTTPException(status_code=403, detail="User not registered or inactive")
 
-        # Query payments for this user, sorted by date descending (most recent first)
+        # Determine which user's payments to fetch
+        # If this user represents someone, fetch payments for the represented user
+        target_user_id = user.id
+        if user.representative_id:
+            user_status_service = UserStatusService(session)
+            represented_user = await user_status_service.get_represented_user(user.id)
+            if represented_user:
+                target_user_id = represented_user.id
+
+        # Query payments for the target user, sorted by date descending (most recent first)
         # Eagerly load the account relationship to avoid async issues
         query = (
             select(Payment)
-            .where(Payment.owner_id == user.id)
+            .where(Payment.owner_id == target_user_id)
             .order_by(desc(Payment.payment_date))
             .options(selectinload(Payment.account))
         )
@@ -401,11 +413,32 @@ async def get_user_status(
         # Get share percentage (for owners only)
         share_percentage = UserStatusService.get_share_percentage(user)
 
+        # Get representative info (if user represents someone)
+        representative_of = None
+        represented_user_roles = None
+        represented_user_share_percentage = None
+
+        if user.representative_id:
+            user_status_service = UserStatusService(session)
+            represented_user = await user_status_service.get_represented_user(user.id)
+            if represented_user:
+                representative_of = {
+                    "user_id": represented_user.id,
+                    "name": represented_user.name,
+                    "telegram_id": represented_user.telegram_id,
+                }
+                # Get represented user's roles and share percentage for context switching
+                represented_user_roles = UserStatusService.get_active_roles(represented_user)
+                represented_user_share_percentage = UserStatusService.get_share_percentage(represented_user)
+
         return UserStatusResponse(
             user_id=user.id,
             roles=roles,
             stakeholder_url=stakeholder_url,
             share_percentage=share_percentage,
+            representative_of=representative_of,
+            represented_user_roles=represented_user_roles,
+            represented_user_share_percentage=represented_user_share_percentage,
         )
 
     except HTTPException:
