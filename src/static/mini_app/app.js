@@ -12,6 +12,46 @@ tg.ready();
 // Get app container
 const appContainer = document.getElementById('app');
 
+/**
+ * Extract initData - works on both Desktop and iOS
+ * On iOS, Telegram may pass initData in URL hash instead of WebApp property
+ */
+function getInitData() {
+    // First try standard WebApp property (works on desktop)
+    if (tg.initData && tg.initData.trim()) {
+        return tg.initData;
+    }
+    
+    // Fallback: Try to extract from URL hash (iOS)
+    // On iOS, the hash looks like: #tgWebAppData=query_id%3D...%26user%3D...
+    const hash = window.location.hash;
+    const match = hash.match(/tgWebAppData=([^&]*)/);
+    if (match && match[1]) {
+        try {
+            const encodedData = match[1];
+            const decodedData = decodeURIComponent(encodedData);
+            return decodedData;
+        } catch (e) {
+            console.error('[DEBUG] getInitData: Failed to decode hash data:', e.message);
+            return null;
+        }
+    }
+    return null;
+}
+
+/**
+ * Fetch helper using Telegram Mini Apps recommended transport.
+ * Sends POST with Authorization: "tma <initData>" and falls back to GET with X header.
+ */
+async function fetchWithTmaAuth(url, initData) {
+    return fetch(url, {
+        method: 'POST',
+        headers: {
+            'Authorization': 'tma ' + initData,
+        },
+    });
+}
+
 // Global error handler
 window.addEventListener('error', (event) => {
     console.error('Uncaught error:', event.error);
@@ -86,12 +126,13 @@ function renderError(message, error = null) {
     const errorMessageEl = content.getElementById('error-message');
     errorMessageEl.textContent = message || 'Please try again later.';
     
-    // Collect debug info
+    // Collect comprehensive debug info
     const debugInfo = {
         timestamp: new Date().toISOString(),
         userAgent: navigator.userAgent,
         platform: navigator.platform,
         url: window.location.href,
+        urlHash: window.location.hash ? window.location.hash.substring(0, 200) : 'empty',
         message: message,
         error: error ? {
             message: error.message,
@@ -102,7 +143,17 @@ function renderError(message, error = null) {
             ready: tg.isExpanded,
             version: tg.version || 'unknown',
             platform: tg.platform || 'unknown',
-            initData: tg.initData ? '✓ present' : '✗ missing'
+            initData: tg.initData ? `✓ present (${tg.initData.length} chars)` : '✗ missing',
+            initDataUnsafe: tg.initDataUnsafe ? JSON.stringify(tg.initDataUnsafe).substring(0, 200) : 'null'
+        },
+        network: {
+            online: navigator.onLine,
+            connectionType: navigator.connection?.effectiveType || 'unknown'
+        },
+        browserCapabilities: {
+            fetchAvailable: typeof fetch !== 'undefined',
+            headersAvailable: typeof Headers !== 'undefined',
+            corsSupported: true
         }
     };
     
@@ -110,8 +161,10 @@ function renderError(message, error = null) {
     const debugInfoEl = content.getElementById('debug-info');
     debugInfoEl.textContent = JSON.stringify(debugInfo, null, 2);
     
-    // Log to console
+    // Log to console with breakdown
     console.error('Mini App Error:', debugInfo);
+    console.error('[DEBUG] Telegram WebApp state:', debugInfo.telegramWebApp);
+    console.error('[DEBUG] Network state:', debugInfo.network);
     
     // Clear and render
     appContainer.innerHTML = '';
@@ -155,24 +208,20 @@ function renderUserStatuses(roles) {
  */
 async function loadPaymentTransactions() {
     try {
-        const initData = tg.initData;
+        const initData = getInitData();
         
         if (!initData) {
-            console.error('No Telegram init data available');
+            console.error('[DEBUG loadPaymentTransactions] No init data available from getInitData()');
             return;
         }
-        
+
         // Fetch payments from backend
-        const response = await fetch('/api/mini-app/payments', {
-            method: 'GET',
-            headers: {
-                'X-Telegram-Init-Data': initData,
-                'Content-Type': 'application/json'
-            }
-        });
-        
+        const response = await fetchWithTmaAuth('/api/mini-app/payments', initData);
+
         if (!response.ok) {
-            console.error('Failed to load payments:', response.status, response.statusText);
+            console.error('[DEBUG loadPaymentTransactions] Failed to load payments:', response.status, response.statusText);
+            const errorText = await response.text();
+            console.error('[DEBUG loadPaymentTransactions] Error response:', errorText);
             return;
         }
         
@@ -184,7 +233,8 @@ async function loadPaymentTransactions() {
         }
         
     } catch (error) {
-        console.error('Error loading payment transactions:', error);
+        console.error('[DEBUG loadPaymentTransactions] Exception:', error);
+        console.error('[DEBUG loadPaymentTransactions] Error message:', error.message);
     }
 }
 
@@ -260,24 +310,20 @@ function renderPaymentTransactions(payments) {
  */
 async function loadUserStatus() {
     try {
-        const initData = tg.initData;
+        const initData = getInitData();
 
         if (!initData) {
-            console.error('No Telegram init data available');
+            console.error('[DEBUG loadUserStatus] No init data available from getInitData()');
             return;
         }
 
         // Fetch user status from backend
-        const response = await fetch('/api/mini-app/user-status', {
-            method: 'GET',
-            headers: {
-                'X-Telegram-Init-Data': initData,
-                'Content-Type': 'application/json'
-            }
-        });
-
+        const response = await fetchWithTmaAuth('/api/mini-app/user-status', initData);
+        
         if (!response.ok) {
-            console.error('Failed to load user status:', response.status, response.statusText);
+            console.error('[DEBUG loadUserStatus] Failed to load user status:', response.status, response.statusText);
+            const errorText = await response.text();
+            console.error('[DEBUG loadUserStatus] Error response:', errorText);
             return;
         }
 
@@ -409,8 +455,14 @@ function renderRepresentativeInfo(representativeOf) {
 async function handleMenuAction(action) {
     if (action === 'enjoy') {
         try {
+            const initData = getInitData();
+            if (!initData) {
+                tg.showAlert('Unable to verify Telegram WebApp data');
+                return;
+            }
+            
             // Fetch photo gallery URL from backend config
-            const response = await fetch('/api/mini-app/config');
+            const response = await fetchWithTmaAuth('/api/mini-app/config', initData);
             const data = await response.json();
             
             if (data.photoGalleryUrl) {
@@ -437,47 +489,52 @@ async function handleMenuAction(action) {
  */
 async function initMiniApp() {
     try {
-        // Get init data from Telegram WebApp
-        const initData = tg.initData;
+        // Get init data from Telegram WebApp (supports both desktop and iOS)
+        const initData = getInitData();
         
         if (!initData) {
+            console.error('[DEBUG] initData is missing or empty after getInitData()');
             renderError('Could not verify Telegram authentication. Please open this app from Telegram.');
             return;
         }
         
-        // Call backend API to check registration status
-        const response = await fetch('/api/mini-app/init', {
-            method: 'GET',
-            headers: {
-                'X-Telegram-Init-Data': initData,
-                'Content-Type': 'application/json'
+        try {
+            // Call backend API to check registration status
+            const response = await fetchWithTmaAuth('/api/mini-app/init', initData);
+            
+            if (!response.ok) {
+                const errorText = await response.text();
+                console.error('[DEBUG] API error response:', errorText);
+                if (response.status === 401) {
+                    renderError('Authentication failed. Please restart the app.');
+                } else {
+                    renderError('Server error. Please try again later.');
+                }
+                return;
             }
-        });
-        
-        if (!response.ok) {
-            if (response.status === 401) {
-                renderError('Authentication failed. Please restart the app.');
+            
+            const data = await response.json();
+            
+            // Render appropriate screen based on registration status
+            if (data.isRegistered) {
+                renderWelcomeScreen(data);
+                // Load and display user status badges after welcome screen renders
+                await loadUserStatus();
+                // Load and display payment transactions
+                await loadPaymentTransactions();
             } else {
-                renderError('Server error. Please try again later.');
+                renderAccessDenied(data);
             }
-            return;
-        }
-        
-        const data = await response.json();
-        
-        // Render appropriate screen based on registration status
-        if (data.isRegistered) {
-            renderWelcomeScreen(data);
-            // Load and display user status badges after welcome screen renders
-            await loadUserStatus();
-            // Load and display payment transactions
-            await loadPaymentTransactions();
-        } else {
-            renderAccessDenied(data);
+            
+        } catch (fetchError) {
+            console.error('[DEBUG] Fetch error:', fetchError?.message || fetchError);
+            throw fetchError; // Re-throw to outer catch
         }
         
     } catch (error) {
-        console.error('Error initializing Mini App:', error);
+        console.error('[DEBUG] Exception in initMiniApp:', error);
+        console.error('[DEBUG] Error message:', error.message);
+        console.error('[DEBUG] Error stack:', error.stack);
         renderError('Network error. Please check your connection and try again.');
     }
 }
@@ -611,24 +668,18 @@ function renderProperties(properties) {
     }
 
     // Render main properties and their additional properties
-    console.log('Rendering properties - Main:', mainProperties.length, 'Additional groups:', Object.keys(additionalMap).length);
-    
     mainProperties.forEach(mainProperty => {
         // Render main property
         const mainItem = createPropertyElement(mainProperty, false);
         listContainer.appendChild(mainItem);
-        console.log('Rendered main property:', mainProperty.id, mainProperty.property_name);
 
         // Render additional properties under this main property
         const children = additionalMap[mainProperty.id] || [];
         children.forEach(additionalProperty => {
             const childItem = createPropertyElement(additionalProperty, true);
             listContainer.appendChild(childItem);
-            console.log('  └─ Rendered additional property:', additionalProperty.id, additionalProperty.property_name);
         });
     });
-    
-    console.log('Total items rendered:', listContainer.children.length);
 }
 
 /**
@@ -636,7 +687,7 @@ function renderProperties(properties) {
  */
 async function loadProperties() {
     try {
-        const initData = tg.initData;
+        const initData = getInitData();
 
         if (!initData) {
             console.error('No Telegram init data available');
@@ -644,13 +695,7 @@ async function loadProperties() {
         }
 
         // Fetch properties from backend
-        const response = await fetch('/api/mini-app/properties', {
-            method: 'GET',
-            headers: {
-                'X-Telegram-Init-Data': initData,
-                'Content-Type': 'application/json'
-            }
-        });
+        const response = await fetchWithTmaAuth('/api/mini-app/properties', initData);
 
         if (!response.ok) {
             if (response.status === 403) {
