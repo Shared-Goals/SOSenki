@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Optional
 
 from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from telegram import Update
 from telegram.ext import Application
@@ -18,6 +19,16 @@ app = FastAPI(
     title="SOSenki Bot",
     description="Client Request Approval Workflow - Telegram Bot",
     version="0.1.0",
+)
+
+# Add CORS middleware for Mini App (required for iPhone/iOS requests)
+# Desktop version works without explicit CORS, but iOS requires CORS headers
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # Allow all origins (safe for Telegram Mini App)
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 # Mount static files for Mini App (002-welcome-mini-app)

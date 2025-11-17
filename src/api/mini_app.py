@@ -5,7 +5,7 @@ import logging
 import os
 from typing import Any
 
-from fastapi import APIRouter, Depends, Header, HTTPException
+from fastapi import APIRouter, Body, Depends, Header, HTTPException, Request
 from pydantic import BaseModel, ConfigDict
 from sqlalchemy import desc, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -20,6 +20,39 @@ logger = logging.getLogger(__name__)
 
 # Create router for Mini App endpoints
 router = APIRouter(prefix="/api/mini-app", tags=["mini-app"])
+
+
+# Helpers
+def _extract_init_data(
+    authorization: str | None,
+    x_telegram_init_data: str | None,
+    body: dict[str, Any] | None,
+) -> str | None:
+    """Extract raw init data from multiple transport options.
+
+    Priority:
+    1) Authorization: "tma <raw>"
+    2) X-Telegram-Init-Data header
+    3) JSON body fields: initDataRaw | initData | init_data_raw | init_data
+    """
+    # 1) Authorization: tma <raw>
+    if authorization:
+        auth = authorization.strip()
+        if auth.lower().startswith("tma "):
+            return auth[4:].strip()
+
+    # 2) Custom header
+    if x_telegram_init_data:
+        return x_telegram_init_data
+
+    # 3) JSON body (POST)
+    if body and isinstance(body, dict):
+        for key in ("initDataRaw", "initData", "init_data_raw", "init_data"):
+            raw = body.get(key)
+            if isinstance(raw, str) and raw.strip():
+                return raw.strip()
+
+    return None
 
 
 # Response schemas
@@ -87,16 +120,28 @@ class PropertyListResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
-@router.get("/config")
-async def get_config() -> dict[str, Any]:
+@router.post("/config")
+async def get_config(
+    authorization: str | None = Header(None, alias="Authorization"),
+    body: dict[str, Any] | None = Body(None),
+) -> dict[str, Any]:
     """
     Get Mini App configuration from environment variables.
 
     Returns public configuration values like photo gallery URL.
 
+    Args:
+        authorization: Authorization header with Telegram initData ("tma <raw>").
+        body: Optional JSON body with initData if not in header.
+
     Returns:
         {"photoGalleryUrl": str | null}
     """
+    # Extract initData (signature verification not strictly needed for config, but maintains consistency)
+    init_data_raw = _extract_init_data(authorization, None, body)
+    if not init_data_raw:
+        raise HTTPException(status_code=401, detail="Missing init data")
+    
     try:
         photo_gallery_url = os.getenv("PHOTO_GALLERY_URL")
         return {"photoGalleryUrl": photo_gallery_url}
@@ -105,10 +150,11 @@ async def get_config() -> dict[str, Any]:
         return {"photoGalleryUrl": None}
 
 
-@router.get("/init")
+@router.post("/init")
 async def mini_app_init(
-    x_telegram_init_data: str = Header(..., alias="X-Telegram-Init-Data"),
     session: AsyncSession = Depends(get_async_session),  # noqa: B008
+    authorization: str | None = Header(None, alias="Authorization"),
+    body: dict[str, Any] | None = Body(None),
 ) -> dict[str, Any]:
     """
     Initialize Mini App and verify user registration status.
@@ -117,7 +163,6 @@ async def mini_app_init(
     or access denied message for non-registered users.
 
     Args:
-        x_telegram_init_data: Telegram WebApp initData (signature verification)
         session: Database session
 
     Returns:
@@ -129,9 +174,16 @@ async def mini_app_init(
         500: Server error
     """
     try:
+        # Extract raw init data from supported transports
+        raw_init = _extract_init_data(authorization, None, body)
+
+        if not raw_init:
+            logger.warning("No Telegram init data provided")
+            raise HTTPException(status_code=401, detail="Missing Telegram init data")
+
         # Verify Telegram signature
         parsed_data = UserService.verify_telegram_webapp_signature(
-            init_data=x_telegram_init_data, bot_token=bot_config.telegram_bot_token
+            init_data=raw_init, bot_token=bot_config.telegram_bot_token
         )
 
         if not parsed_data:
@@ -185,10 +237,11 @@ async def mini_app_init(
         raise HTTPException(status_code=500, detail="Server error") from e
 
 
-@router.get("/verify-registration")
+@router.post("/verify-registration")
 async def verify_registration(
-    x_telegram_init_data: str = Header(..., alias="X-Telegram-Init-Data"),
     session: AsyncSession = Depends(get_async_session),  # noqa: B008
+    authorization: str | None = Header(None, alias="Authorization"),
+    body: dict[str, Any] | None = Body(None),
 ) -> dict[str, Any]:
     """
     Verify user registration status (explicit refresh).
@@ -197,7 +250,6 @@ async def verify_registration(
     Useful for explicit refresh after user requests it.
 
     Args:
-        x_telegram_init_data: Telegram WebApp initData
         session: Database session
 
     Returns:
@@ -207,9 +259,12 @@ async def verify_registration(
         401: Invalid Telegram signature
     """
     try:
+        # Extract raw init data
+        raw_init = _extract_init_data(authorization, None, body)
+
         # Verify signature
         parsed_data = UserService.verify_telegram_webapp_signature(
-            init_data=x_telegram_init_data, bot_token=bot_config.telegram_bot_token
+            init_data=raw_init or "", bot_token=bot_config.telegram_bot_token
         )
 
         if not parsed_data:
@@ -251,14 +306,15 @@ async def verify_registration(
 
 @router.post("/menu-action")
 async def menu_action(
-    x_telegram_init_data: str = Header(..., alias="X-Telegram-Init-Data"),
-    action_data: dict[str, Any] = None,
+    authorization: str | None = Header(None, alias="Authorization"),
+    x_telegram_init_data: str | None = Header(None, alias="X-Telegram-Init-Data"),
+    action_data: dict[str, Any] | None = Body(None),
 ) -> dict[str, Any]:
     """
     Handle menu action (placeholder for future features).
 
     Args:
-        x_telegram_init_data: Telegram WebApp initData
+        Telegram WebApp initData (via Authorization/X-Header or body)
         action_data: Action data (e.g., {"action": "rule", "data": {}})
 
     Returns:
@@ -269,9 +325,10 @@ async def menu_action(
         403: Access denied
     """
     try:
-        # Verify signature
+        # Extract raw init data and verify signature
+        raw_init = _extract_init_data(authorization, x_telegram_init_data, action_data)
         parsed_data = UserService.verify_telegram_webapp_signature(
-            init_data=x_telegram_init_data, bot_token=bot_config.telegram_bot_token
+            init_data=raw_init or "", bot_token=bot_config.telegram_bot_token
         )
 
         if not parsed_data:
@@ -287,10 +344,11 @@ async def menu_action(
         raise HTTPException(status_code=500, detail="Server error") from e
 
 
-@router.get("/payments", response_model=PaymentListResponse)
+@router.post("/payments", response_model=PaymentListResponse)
 async def get_user_payments(
-    x_telegram_init_data: str = Header(..., alias="X-Telegram-Init-Data"),
     session: AsyncSession = Depends(get_async_session),  # noqa: B008
+    authorization: str | None = Header(None, alias="Authorization"),
+    body: dict[str, Any] | None = Body(None),
 ) -> PaymentListResponse:
     """
     Get current user's payment transactions for display in dashboard.
@@ -298,7 +356,6 @@ async def get_user_payments(
     Returns list of user's payments sorted by date (most recent first).
 
     Args:
-        x_telegram_init_data: Telegram WebApp initData (signature verification)
         session: Database session
 
     Returns:
@@ -310,9 +367,10 @@ async def get_user_payments(
         500: Server error
     """
     try:
-        # Verify Telegram signature
+        # Extract and verify Telegram signature
+        raw_init = _extract_init_data(authorization, None, body)
         parsed_data = UserService.verify_telegram_webapp_signature(
-            init_data=x_telegram_init_data, bot_token=bot_config.telegram_bot_token
+            init_data=raw_init or "", bot_token=bot_config.telegram_bot_token
         )
 
         if not parsed_data:
@@ -381,10 +439,11 @@ async def get_user_payments(
         raise HTTPException(status_code=500, detail="Server error") from e
 
 
-@router.get("/user-status", response_model=UserStatusResponse)
+@router.post("/user-status", response_model=UserStatusResponse)
 async def get_user_status(
-    x_telegram_init_data: str = Header(..., alias="X-Telegram-Init-Data"),
     session: AsyncSession = Depends(get_async_session),  # noqa: B008
+    authorization: str | None = Header(None, alias="Authorization"),
+    body: dict[str, Any] | None = Body(None),
 ) -> UserStatusResponse:
     """
     Get current user's status information for dashboard display.
@@ -393,7 +452,6 @@ async def get_user_status(
     and stakeholder shares link (for owners only).
 
     Args:
-        x_telegram_init_data: Telegram WebApp initData (signature verification)
         session: Database session
 
     Returns:
@@ -405,9 +463,10 @@ async def get_user_status(
         500: Server error
     """
     try:
-        # Verify Telegram signature
+        # Extract and verify Telegram signature
+        raw_init = _extract_init_data(authorization, None, body)
         parsed_data = UserService.verify_telegram_webapp_signature(
-            init_data=x_telegram_init_data, bot_token=bot_config.telegram_bot_token
+            init_data=raw_init or "", bot_token=bot_config.telegram_bot_token
         )
 
         if not parsed_data:
@@ -479,10 +538,11 @@ async def get_user_status(
         raise HTTPException(status_code=500, detail="Server error") from e
 
 
-@router.get("/properties")
+@router.post("/properties")
 async def get_properties(
-    x_telegram_init_data: str = Header(..., alias="X-Telegram-Init-Data"),
     session: AsyncSession = Depends(get_async_session),  # noqa: B008
+    authorization: str | None = Header(None, alias="Authorization"),
+    body: dict[str, Any] | None = Body(None),
 ) -> PropertyListResponse:
     """
     Get properties for owner or represented owner.
@@ -492,7 +552,6 @@ async def get_properties(
     Uses context switching: if user represents someone, returns their properties.
 
     Args:
-        x_telegram_init_data: Telegram WebApp initData (signature verification)
         session: Database session
 
     Returns:
@@ -504,9 +563,10 @@ async def get_properties(
         500: Server error
     """
     try:
-        # Verify Telegram signature
+        # Extract and verify Telegram signature
+        raw_init = _extract_init_data(authorization, None, body)
         parsed_data = UserService.verify_telegram_webapp_signature(
-            init_data=x_telegram_init_data, bot_token=bot_config.telegram_bot_token
+            init_data=raw_init or "", bot_token=bot_config.telegram_bot_token
         )
 
         if not parsed_data:
