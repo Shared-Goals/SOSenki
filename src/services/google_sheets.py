@@ -28,7 +28,7 @@ class GoogleSheetsClient:
             CredentialsError: If credentials file not found or invalid
             APIError: If authentication fails
         """
-        self.logger = logging.getLogger("sostenki.seeding.google_sheets")
+        self.logger = logging.getLogger("sosenki.seeding.google_sheets")
         self.credentials_path = credentials_path
 
         try:

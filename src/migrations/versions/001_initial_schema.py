@@ -144,12 +144,25 @@ def upgrade() -> None:
         sa.Index("idx_status", "status"),
     )
 
-    # Create accounts table
+    # Create accounts table (polymorphic: user and community accounts)
     op.create_table(
         "accounts",
         sa.Column("id", sa.Integer(), nullable=False),
         sa.Column("name", sa.String(length=100), nullable=False),
         sa.Column(
+            "account_type",
+            sa.String(length=50),
+            nullable=False,
+            server_default="community",
+            comment="Account type: 'user' for personal, 'community' for shared",
+        ),
+        sa.Column(
+            "user_id",
+            sa.Integer(),
+            nullable=True,
+            comment="FK to User if account_type='user' (1:1 relationship)",
+        ),
+        sa.Column(
             "created_at",
             sa.DateTime(timezone=True),
             nullable=False,
@@ -161,20 +174,38 @@ def upgrade() -> None:
             nullable=False,
             server_default=sa.func.current_timestamp(),
         ),
+        sa.ForeignKeyConstraint(["user_id"], ["users.id"]),
         sa.PrimaryKeyConstraint("id"),
-        sa.UniqueConstraint("name"),
-        sa.Index("ix_accounts_name", "name", unique=True),
+        sa.Index("idx_account_name", "name"),
+        sa.Index("idx_account_type", "account_type"),
+        sa.Index("idx_account_user", "user_id", "account_type", unique=True),
     )
 
-    # Create payments table
+    # Create transactions table (unified account-to-account transactions)
     op.create_table(
-        "payments",
+        "transactions",
         sa.Column("id", sa.Integer(), nullable=False),
-        sa.Column("owner_id", sa.Integer(), nullable=False),
-        sa.Column("account_id", sa.Integer(), nullable=False),
-        sa.Column("amount", sa.Numeric(precision=10, scale=2), nullable=False),
-        sa.Column("payment_date", sa.Date(), nullable=False),
-        sa.Column("comment", sa.Text(), nullable=True),
+        sa.Column("from_account_id", sa.Integer(), nullable=False),
+        sa.Column("to_account_id", sa.Integer(), nullable=False),
+        sa.Column(
+            "service_period_id",
+            sa.Integer(),
+            nullable=True,
+            comment="Associated service period",
+        ),
+        sa.Column(
+            "amount",
+            sa.Numeric(precision=10, scale=2),
+            nullable=False,
+            comment="Transaction amount in rubles",
+        ),
+        sa.Column(
+            "transaction_date",
+            sa.Date(),
+            nullable=False,
+            comment="Date of transaction",
+        ),
+        sa.Column("description", sa.Text(), nullable=True),
         sa.Column(
             "created_at",
             sa.DateTime(timezone=True),
@@ -187,15 +218,75 @@ def upgrade() -> None:
             nullable=False,
             server_default=sa.func.current_timestamp(),
         ),
-        sa.ForeignKeyConstraint(["account_id"], ["accounts.id"]),
-        sa.ForeignKeyConstraint(["owner_id"], ["users.id"]),
+        sa.ForeignKeyConstraint(["from_account_id"], ["accounts.id"]),
+        sa.ForeignKeyConstraint(["to_account_id"], ["accounts.id"]),
+        sa.ForeignKeyConstraint(["service_period_id"], ["service_periods.id"]),
         sa.PrimaryKeyConstraint("id"),
-        sa.Index("ix_payments_owner_id", "owner_id"),
-        sa.Index("ix_payments_account_id", "account_id"),
-        sa.Index("ix_payments_payment_date", "payment_date"),
-        sa.Index("ix_payments_owner_account", "owner_id", "account_id"),
-        sa.Index("ix_payments_owner_date", "owner_id", "payment_date"),
-        sa.Index("ix_payments_account_date", "account_id", "payment_date"),
+        sa.Index("idx_transaction_from_account", "from_account_id"),
+        sa.Index("idx_transaction_to_account", "to_account_id"),
+        sa.Index("idx_transaction_from_to", "from_account_id", "to_account_id"),
+        sa.Index("idx_transaction_period", "service_period_id"),
+        sa.Index("idx_transaction_date", "transaction_date"),
+    )
+
+    # Create service_periods table
+    op.create_table(
+        "service_periods",
+        sa.Column("id", sa.Integer(), nullable=False),
+        sa.Column("name", sa.String(length=255), nullable=False, unique=True),
+        sa.Column("start_date", sa.Date(), nullable=False),
+        sa.Column("end_date", sa.Date(), nullable=False),
+        sa.Column(
+            "status",
+            sa.Enum("open", "closed", native_enum=False),
+            nullable=False,
+            server_default="open",
+        ),
+        sa.Column(
+            "created_at",
+            sa.DateTime(timezone=True),
+            nullable=False,
+            server_default=sa.func.current_timestamp(),
+        ),
+        sa.Column(
+            "updated_at",
+            sa.DateTime(timezone=True),
+            nullable=False,
+            server_default=sa.func.current_timestamp(),
+        ),
+        sa.PrimaryKeyConstraint("id"),
+        sa.Index("ix_service_periods_name", "name", unique=True),
+    )
+
+    # Create budget_items table
+    op.create_table(
+        "budget_items",
+        sa.Column("id", sa.Integer(), nullable=False),
+        sa.Column("service_period_id", sa.Integer(), nullable=False),
+        sa.Column("expense_type", sa.String(length=255), nullable=False),
+        sa.Column(
+            "allocation_strategy",
+            sa.Enum("proportional", "fixed_fee", "usage_based", "none", native_enum=False),
+            nullable=False,
+            server_default="none",
+        ),
+        sa.Column("total_amount", sa.Numeric(precision=10, scale=2), nullable=False),
+        sa.Column(
+            "created_at",
+            sa.DateTime(timezone=True),
+            nullable=False,
+            server_default=sa.func.current_timestamp(),
+        ),
+        sa.Column(
+            "updated_at",
+            sa.DateTime(timezone=True),
+            nullable=False,
+            server_default=sa.func.current_timestamp(),
+        ),
+        sa.ForeignKeyConstraint(["service_period_id"], ["service_periods.id"]),
+        sa.PrimaryKeyConstraint("id"),
+        sa.Index("idx_budget_period_type", "service_period_id", "expense_type"),
+        sa.Index("idx_budget_period_strategy", "service_period_id", "allocation_strategy"),
     )
 
 

@@ -122,7 +122,7 @@ class TestLoadConfig:
     def test_load_config_with_custom_database_url(self, monkeypatch, tmp_path):
         """Test that custom DATABASE_URL loads correctly."""
         monkeypatch.setenv("GOOGLE_SHEET_ID", "test-sheet-id")
-        monkeypatch.setenv("DATABASE_URL", "postgresql://localhost/sostenki")
+        monkeypatch.setenv("DATABASE_URL", "postgresql://localhost/sosenki")
 
         # Create valid credentials
         creds_file = tmp_path / "creds.json"
@@ -136,7 +136,7 @@ class TestLoadConfig:
         monkeypatch.setenv("GOOGLE_CREDENTIALS_PATH", str(creds_file))
 
         config = load_config()
-        assert config.database_url == "postgresql://localhost/sostenki"
+        assert config.database_url == "postgresql://localhost/sosenki"
 
     def test_load_config_credentials_not_readable(self, monkeypatch, tmp_path):
         """Test that unreadable credentials file raises clear error."""

@@ -43,7 +43,7 @@ def parse_property_row(row_dict: Dict[str, str], owner: User) -> List[Dict]:
     Raises:
         DataValidationError: On validation errors
     """
-    logger = logging.getLogger("sostenki.seeding.properties")
+    logger = logging.getLogger("sosenki.seeding.properties")
     properties = []
 
     # Load configuration
@@ -156,7 +156,7 @@ def create_properties(session: Session, property_dicts: List[Dict], owner: User)
     Raises:
         DataValidationError: On database errors
     """
-    logger = logging.getLogger("sostenki.seeding.properties")
+    logger = logging.getLogger("sosenki.seeding.properties")
     created = []
 
     try:

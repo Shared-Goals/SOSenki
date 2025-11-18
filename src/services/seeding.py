@@ -17,20 +17,28 @@ from sqlalchemy.orm import Session
 
 from src.config.seeding_config import SeedingConfig
 from src.models.account import Account
-from src.models.payment import Payment
 from src.models.property import Property
 from src.models.user import User
+from src.services.credit_seeding import (
+    parse_credit_range_with_service_period,
+    parse_credit_row,
+)
 from src.services.errors import DatabaseError, TransactionError
 from src.services.google_sheets import GoogleSheetsClient
-from src.services.payment_seeding import (
-    create_payments,
-    parse_payment_row,
+from src.services.debit_seeding import (
+    parse_debit_range_with_service_period,
+    parse_debit_row,
 )
 from src.services.property_seeding import create_properties, parse_property_row
 from src.services.seeding_utils import (
     get_or_create_user,
     parse_user_row,
     sheet_row_to_dict,
+)
+from src.services.transaction_seeding import (
+    create_credit_transactions,
+    create_debit_transactions,
+    get_or_create_service_period,
 )
 
 
@@ -47,11 +55,17 @@ class SeedResult:
     properties_created: int
     """Number of properties created"""
 
-    payments_created: int
-    """Number of payments created"""
+    debits_created: int
+    """Number of debits created"""
 
-    rows_skipped: int
+    credits_created: int = 0
+    """Number of credits (from credit transactions) created"""
+
+    rows_skipped: int = 0
     """Number of rows skipped due to validation errors"""
+
+    error_message: str | None = None
+    """Error message if seeding failed"""
 
     error_message: str = None
     """Error message if success=False"""
@@ -63,7 +77,7 @@ class SeedResult:
                 f"✓ Seed successful\n"
                 f"  Users: {self.users_created}\n"
                 f"  Properties: {self.properties_created}\n"
-                f"  Payments: {self.payments_created}\n"
+                f"  Debits: {self.debits_created}\n"
                 f"  Skipped: {self.rows_skipped}"
             )
         else:
@@ -82,7 +96,7 @@ class SeededService:
             logger: Optional logger instance (creates if not provided)
         """
         self.session = session
-        self.logger = logger or logging.getLogger("sostenki.seeding.main")
+        self.logger = logger or logging.getLogger("sosenki.seeding.main")
 
     def execute_seed(  # noqa: C901
         self,
@@ -167,10 +181,25 @@ class SeededService:
                 f"{len(property_rows)} property rows, skipped {rows_skipped}"
             )
 
+            # Step 3b: Add users from 'add' section of config
+            additional_users = config.get_additional_users()
+            if additional_users:
+                self.logger.info(f"Found {len(additional_users)} additional users to add")
+                for user_name, user_attrs in additional_users.items():
+                    if user_name not in users_dict:
+                        # Merge with defaults to ensure all required fields are present
+                        merged_attrs = config.get_user_defaults().copy()
+                        merged_attrs.update(user_attrs)
+                        merged_attrs["name"] = user_name
+                        users_dict[user_name] = merged_attrs
+                        self.logger.info(f"Added user from config: {user_name}")
+                    else:
+                        self.logger.info(f"User already exists (from sheet): {user_name}, skipping")
+
             # Step 4: Truncate existing data (atomic with inserts)
             try:
                 self.logger.info("Truncating existing data...")
-                self.session.execute(delete(Payment))
+                # Delete in correct order to respect foreign keys
                 self.session.execute(delete(Account))
                 self.session.execute(delete(Property))
                 self.session.execute(delete(User))
@@ -218,71 +247,173 @@ class SeededService:
             except Exception as e:
                 raise TransactionError(f"Failed to create properties: {e}") from e
 
-            # Step 7: Insert payments
-            total_payments = 0
+            # Step 7: Insert debit transactions
+            total_debits = 0
             try:
                 config = SeedingConfig.load()
-                payment_range_names = config.get_payment_range_names()
-                account_column = config.get_payment_account_column()
-                default_account_name = config.get_payment_account_name()
+                debit_range_names = config.get_debit_range_names()
+                default_account_name = config.get_debit_account_name()
 
-                self.logger.info(f"Processing {len(payment_range_names)} payment range(s)")
+                self.logger.info(f"Processing {len(debit_range_names)} debit range(s)")
 
-                for payment_range_name in payment_range_names:
-                    self.logger.info(f"Fetching payments from range '{payment_range_name}'...")
+                for debit_range_name in debit_range_names:
+                    self.logger.info(f"Fetching debits from range '{debit_range_name}'...")
 
-                    # Fetch payment data using named range (only exact payment data columns)
-                    payment_sheet_data = google_sheets_client.fetch_sheet_data(
-                        spreadsheet_id, range_spec=payment_range_name
+                    # Fetch debit data using named range
+                    debit_sheet_data = google_sheets_client.fetch_sheet_data(
+                        spreadsheet_id, range_spec=debit_range_name
                     )
 
-                    if payment_sheet_data:
+                    if debit_sheet_data:
                         # Named ranges: header at [0], data from [1:]
-                        if len(payment_sheet_data) < 2:
+                        if len(debit_sheet_data) < 2:
                             self.logger.warning(
-                                f"Payment range '{payment_range_name}' has insufficient data"
+                                f"Debit range '{debit_range_name}' has insufficient data"
                             )
                             continue
 
-                        payment_header_row = payment_sheet_data[0]
-                        payment_data_rows = payment_sheet_data[1:]
+                        debit_header_row = debit_sheet_data[0]
+                        debit_data_rows = debit_sheet_data[1:]
 
-                        if payment_data_rows:
-                            # Parse payment rows
-                            payment_dicts: List[Dict] = []
-                            for row_idx, row_values in enumerate(payment_data_rows, start=1):
+                        if debit_data_rows:
+                            # Parse debit rows
+                            debit_dicts: List[Dict] = []
+                            account_column = config.get_debit_account_column()
+                            
+                            for row_idx, row_values in enumerate(debit_data_rows, start=1):
                                 try:
-                                    row_dict = sheet_row_to_dict(row_values, payment_header_row)
-                                    payment_dict = parse_payment_row(row_dict, account_column)
-                                    if payment_dict:
-                                        payment_dicts.append(payment_dict)
+                                    row_dict = sheet_row_to_dict(row_values, debit_header_row)
+                                    debit_dict = parse_debit_row(row_dict, account_column)
+                                    if debit_dict:
+                                        debit_dicts.append(debit_dict)
                                 except Exception as e:
-                                    self.logger.debug(f"Payment row {row_idx}: Skipped ({e})")
+                                    self.logger.debug(f"Debit row {row_idx}: Skipped ({e})")
                                     rows_skipped += 1
 
                             self.logger.info(
-                                f"Parsed {len(payment_dicts)} payment records from '{payment_range_name}'"
+                                f"Parsed {len(debit_dicts)} debit records from '{debit_range_name}'"
                             )
 
-                            # Create payments with per-row account extraction
-                            if payment_dicts:
-                                range_payments = create_payments(
-                                    self.session,
-                                    payment_dicts,
-                                    account=None,
-                                    owner_map=created_users,
-                                    default_account_name=default_account_name,
-                                )
-                                total_payments += range_payments
+                            # Get service period info for this range
+                            if debit_dicts:
+                                try:
+                                    debit_dicts, period_info = parse_debit_range_with_service_period(
+                                        debit_dicts, debit_range_name, config
+                                    )
+                                    
+                                    # Get or create service period from info
+                                    service_period = get_or_create_service_period(
+                                        self.session,
+                                        period_info["name"],
+                                        period_info["start_date"],
+                                        period_info["end_date"],
+                                    )
+                                    
+                                    # Create transactions using new service
+                                    range_debits = create_debit_transactions(
+                                        self.session,
+                                        debit_dicts,
+                                        user_map=created_users,
+                                        period=service_period,
+                                        default_account_name=default_account_name,
+                                    )
+                                    total_debits += range_debits
+                                except Exception as e:
+                                    self.logger.error(f"Failed to create transactions from '{debit_range_name}': {e}")
+                                    rows_skipped += len(debit_dicts)
                     else:
                         self.logger.warning(
-                            f"Payment range '{payment_range_name}' is empty or not found"
+                            f"Debit range '{debit_range_name}' is empty or not found"
                         )
 
             except Exception as e:
-                self.logger.error(f"Failed to create payments: {e}")
-                # Don't fail entire seeding if payments fail - just log and continue
-                total_payments = 0
+                self.logger.error(f"Failed to create debits: {e}")
+                # Don't fail entire seeding if debits fail - just log and continue
+                total_debits = 0
+
+            # Step 7b: Insert credit transactions
+            total_credits = 0
+            try:
+                config = SeedingConfig.load()
+                credit_range_names = config.get_credit_range_names()
+
+                if credit_range_names:
+                    self.logger.info(f"Processing {len(credit_range_names)} credit range(s)")
+
+                    for credit_range_name in credit_range_names:
+                        self.logger.info(f"Fetching credits from range '{credit_range_name}'...")
+
+                        # Fetch credit data using named range
+                        credit_sheet_data = google_sheets_client.fetch_sheet_data(
+                            spreadsheet_id, range_spec=credit_range_name
+                        )
+
+                        if credit_sheet_data:
+                            # Named ranges: header at [0], data from [1:]
+                            if len(credit_sheet_data) < 2:
+                                self.logger.warning(
+                                    f"Credit range '{credit_range_name}' has insufficient data"
+                                )
+                                continue
+
+                            credit_header_row = credit_sheet_data[0]
+                            credit_data_rows = credit_sheet_data[1:]
+
+                            if credit_data_rows:
+                                # Parse credit rows
+                                credit_dicts: List[Dict] = []
+                                for row_idx, row_values in enumerate(credit_data_rows, start=1):
+                                    try:
+                                        row_dict = sheet_row_to_dict(row_values, credit_header_row)
+                                        credit_dict = parse_credit_row(row_dict)
+                                        if credit_dict:
+                                            credit_dicts.append(credit_dict)
+                                    except Exception as e:
+                                        self.logger.debug(f"Credit row {row_idx}: Skipped ({e})")
+                                        rows_skipped += 1
+
+                                self.logger.info(
+                                    f"Parsed {len(credit_dicts)} credit records from '{credit_range_name}'"
+                                )
+
+                                # Get service period info for this range
+                                if credit_dicts:
+                                    try:
+                                        credit_dicts, period_info = parse_credit_range_with_service_period(
+                                            credit_dicts, credit_range_name, config
+                                        )
+
+                                        # Get or create service period from info
+                                        service_period = get_or_create_service_period(
+                                            self.session,
+                                            period_info["name"],
+                                            period_info["start_date"],
+                                            period_info["end_date"],
+                                        )
+
+                                        # Create transactions using new service
+                                        range_credits = create_credit_transactions(
+                                            self.session,
+                                            credit_dicts,
+                                            user_map=created_users,
+                                            period=service_period,
+                                            default_account_name="Взносы",
+                                        )
+                                        total_credits += range_credits
+                                    except Exception as e:
+                                        self.logger.error(f"Failed to create credit transactions from '{credit_range_name}': {e}")
+                                        rows_skipped += len(credit_dicts)
+                        else:
+                            self.logger.info(
+                                f"Credit range '{credit_range_name}' is empty or not found"
+                            )
+                else:
+                    self.logger.info("No credit ranges configured, skipping credit seeding")
+
+            except Exception as e:
+                self.logger.error(f"Failed to create credits: {e}")
+                # Don't fail entire seeding if credits fail - just log and continue
+                total_credits = 0
 
             # Step 8: Commit transaction
             try:
@@ -292,7 +423,8 @@ class SeededService:
                     success=True,
                     users_created=len(created_users),
                     properties_created=total_properties,
-                    payments_created=total_payments,
+                    debits_created=total_debits,
+                    credits_created=total_credits,
                     rows_skipped=rows_skipped,
                 )
             except Exception as e:
@@ -310,7 +442,8 @@ class SeededService:
                 success=False,
                 users_created=0,
                 properties_created=0,
-                payments_created=0,
+                debits_created=0,
+                credits_created=0,
                 rows_skipped=0,
                 error_message=str(e),
             )

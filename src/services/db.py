@@ -15,14 +15,14 @@ def create_session(database_url: str) -> Generator[Session, None, None]:
     Create a database session context manager.
 
     Args:
-        database_url: SQLAlchemy database URL (e.g., "sqlite:///./sostenki.db")
+        database_url: SQLAlchemy database URL (e.g., "sqlite:///./sosenki.db")
 
     Yields:
         SQLAlchemy Session for database operations
 
     Example:
         ```python
-        for session in create_session("sqlite:///./sostenki.db"):
+        for session in create_session("sqlite:///./sosenki.db"):
             users = session.query(User).all()
         ```
     """

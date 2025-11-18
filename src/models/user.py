@@ -124,15 +124,17 @@ class User(Base, BaseModel):
         remote_side="User.id",
         doc="The user this user represents (self-referential)",
     )
+    account: Mapped["Account | None"] = relationship(  # noqa: F821
+        "Account",
+        back_populates="user",
+        foreign_keys="Account.user_id",
+        uselist=False,
+        doc="Personal account linked to this user (1:1 relationship)",
+    )
     properties: Mapped[list["Property"]] = relationship(  # noqa: F821
         "Property",
         back_populates="owner",
         foreign_keys="Property.owner_id",
-    )
-    payments: Mapped[list["Payment"]] = relationship(  # noqa: F821
-        "Payment",
-        back_populates="owner",
-        foreign_keys="Payment.owner_id",
     )
 
     def __repr__(self) -> str:

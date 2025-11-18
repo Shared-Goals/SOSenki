@@ -31,7 +31,7 @@ def setup_logging(log_file: str = "logs/seed.log") -> logging.Logger:
     log_path.parent.mkdir(parents=True, exist_ok=True)
 
     # Configure logger
-    logger = logging.getLogger("sostenki.seeding")
+    logger = logging.getLogger("sosenki.seeding")
     logger.setLevel(logging.INFO)
 
     # Remove any existing handlers
