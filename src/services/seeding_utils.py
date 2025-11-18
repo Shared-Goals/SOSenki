@@ -32,7 +32,7 @@ def parse_user_row(row_dict: Dict[str, str]) -> Optional[Dict]:
     Raises:
         DataValidationError: If owner name is empty/whitespace
     """
-    logger = logging.getLogger("sostenki.seeding.parsers")
+    logger = logging.getLogger("sosenki.seeding.parsers")
 
     # Load configuration
     config = SeedingConfig.load()
@@ -67,7 +67,7 @@ def parse_user_row(row_dict: Dict[str, str]) -> Optional[Dict]:
 
 def get_or_create_user(session: Session, name: str, user_attrs: Optional[Dict] = None) -> User:
     """
-    Get existing user by name or create new user.
+    Get existing user by name or create new user with personal account.
 
     Args:
         session: SQLAlchemy session
@@ -84,9 +84,10 @@ def get_or_create_user(session: Session, name: str, user_attrs: Optional[Dict] =
     1. Query user by name (case-sensitive, exact match)
     2. If found: return existing user
     3. If not found: create new user with provided attributes or config defaults
-    4. Flush transaction (get ID without full commit)
+    4. Auto-create personal Account for the user (account_type='user')
+    5. Flush transaction (get ID without full commit)
     """
-    logger = logging.getLogger("sostenki.seeding.users")
+    logger = logging.getLogger("sosenki.seeding.users")
 
     try:
         # Query for existing user by name
@@ -106,10 +107,22 @@ def get_or_create_user(session: Session, name: str, user_attrs: Optional[Dict] =
         session.add(user)
         session.flush()  # Get the ID before full commit
 
+        # Auto-create personal account for the user
+        from src.models.account import Account, AccountType
+        
+        user_account = Account(
+            name=name,
+            account_type=AccountType.USER,
+            user_id=user.id,
+        )
+        session.add(user_account)
+        session.flush()
+
         logger.info(
             f"Created new user: {name} "
             f"(investor={user.is_investor}, stakeholder={user.is_stakeholder})"
         )
+        logger.info(f"Created personal account for user: {name}")
         return user
 
     except Exception as e:

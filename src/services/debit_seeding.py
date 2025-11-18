@@ -1,0 +1,156 @@
+"""Debit transaction parsing and creation utilities for database seeding.
+
+This module handles debit row parsing from Google Sheets.
+Creation is delegated to transaction_seeding.create_debit_transactions()
+"""
+
+import logging
+from datetime import datetime
+from typing import Dict, List, Optional
+
+from sqlalchemy.orm import Session
+
+from src.config.seeding_config import SeedingConfig
+from src.services.errors import DataValidationError
+from src.services.parsers import parse_russian_currency
+
+
+def parse_date(value: Optional[str]) -> Optional[datetime]:
+    """
+    Parse a Russian-formatted date string to Python date object.
+
+    Handles format: "DD.MM.YYYY" (e.g., "23.06.2025")
+
+    Args:
+        value: Date string in format "DD.MM.YYYY" or None/empty
+
+    Returns:
+        datetime.date object or None if input is empty
+
+    Raises:
+        ValueError: If date format is invalid
+    """
+    if not value or not isinstance(value, str):
+        return None
+
+    value = value.strip()
+    if not value:
+        return None
+
+    try:
+        return datetime.strptime(value, "%d.%m.%Y").date()
+    except ValueError as e:
+        raise ValueError(f"Cannot parse date '{value}' (expected DD.MM.YYYY): {e}") from e
+
+
+def parse_debit_row(row_dict: Dict[str, str], account_column: str = None) -> Optional[Dict]:
+    """
+    Parse a row from debit sheet into debit attributes.
+
+    Uses three-phase approach:
+    Phase 1: Extract fields from row using column mappings
+    Phase 2: Validate required fields (amount and date)
+    Phase 3: Parse and convert field values
+
+    Args:
+        row_dict: Dictionary mapping column names to cell values
+        account_column: Optional column name that contains account name (e.g., 'Счет')
+
+    Returns:
+        Dict with debit attributes (including account_name if account_column specified)
+        or None if row should be skipped (empty amount)
+
+    Raises:
+        DataValidationError: If required fields are invalid
+    """
+    logger = logging.getLogger("sosenki.seeding.debits")
+
+    # Load configuration
+    config = SeedingConfig.load()
+    parsing_rules = config.get_debit_parsing_rules()
+
+    # PHASE 1: Extract field column names
+    owner_name_column = parsing_rules.get("owner_name_column", "Собственник")
+    amount_column = parsing_rules.get("amount_column", "Сумма")
+    date_column = parsing_rules.get("date_column", "Дата")
+    comment_column = parsing_rules.get("comment_column", "Комментарий")
+
+    owner_name = row_dict.get(owner_name_column, "").strip()
+    amount_str = row_dict.get(amount_column, "").strip()
+    date_str = row_dict.get(date_column, "").strip()
+    comment = row_dict.get(comment_column, "").strip() or None
+
+    # PHASE 2: Validate required fields
+    if not owner_name:
+        logger.debug("Skipping debit row: empty owner name")
+        raise DataValidationError("Empty owner name")
+
+    if not amount_str:
+        logger.debug(f"Skipping debit row for {owner_name}: empty amount")
+        raise DataValidationError("Empty amount")
+
+    if not date_str:
+        logger.debug(f"Skipping debit row for {owner_name}: empty date")
+        raise DataValidationError("Empty payment date")
+
+    # Extract account name from row if column specified
+    account_name = None
+    if account_column:
+        account_name = row_dict.get(account_column, "").strip() or None
+
+    # PHASE 3: Parse and convert field values
+    try:
+        amount = parse_russian_currency(amount_str)
+        if amount is None or amount <= 0:
+            raise ValueError("Amount must be positive")
+
+        debit_date = parse_date(date_str)
+        if debit_date is None:
+            raise ValueError("Invalid debit date")
+    except (ValueError, DataValidationError) as e:
+        raise DataValidationError(f"Failed to parse debit for {owner_name}: {e}") from e
+
+    return {
+        "owner_name": owner_name,
+        "amount": amount,
+        "debit_date": debit_date,
+        "comment": comment,
+        "account_name": account_name,
+    }
+
+
+def parse_debit_range_with_service_period(
+    debit_dicts: List[Dict],
+    range_name: str,
+    config: SeedingConfig = None,
+) -> tuple[List[Dict], Dict]:
+    """
+    Enrich debit dicts with service period information based on range name.
+
+    Args:
+        debit_dicts: List of parsed debit dicts from parse_debit_row()
+        range_name: Google Sheets range name (e.g., 'Contrib2425', 'Contrib25_1')
+        config: Optional SeedingConfig instance (loads if not provided)
+
+    Returns:
+        Tuple of (enriched_debit_dicts, service_period_dict)
+
+    Raises:
+        DataValidationError: If range name is not mapped to service period
+    """
+    if config is None:
+        config = SeedingConfig.load()
+
+    logger = logging.getLogger("sosenki.seeding.debits")
+
+    service_periods = config.get_service_periods()
+    if range_name not in service_periods:
+        raise DataValidationError(
+            f"Range '{range_name}' not mapped to service period in config. "
+            f"Available: {list(service_periods.keys())}"
+        )
+
+    period_info = service_periods[range_name]
+    logger.info(f"Range '{range_name}' mapped to period '{period_info['name']}'")
+
+    return debit_dicts, period_info

@@ -204,44 +204,44 @@ function renderUserStatuses(roles) {
 }
 
 /**
- * Load payment transactions from backend and render list
+ * Load debit transactions from backend and render list
  */
-async function loadPaymentTransactions() {
+async function loadDebitTransactions() {
     try {
         const initData = getInitData();
         
         if (!initData) {
-            console.error('[DEBUG loadPaymentTransactions] No init data available from getInitData()');
+            console.error('[DEBUG loadDebitTransactions] No init data available from getInitData()');
             return;
         }
 
-        // Fetch payments from backend
-        const response = await fetchWithTmaAuth('/api/mini-app/payments', initData);
+        // Fetch debits from backend
+        const response = await fetchWithTmaAuth('/api/mini-app/debits', initData);
 
         if (!response.ok) {
-            console.error('[DEBUG loadPaymentTransactions] Failed to load payments:', response.status, response.statusText);
+            console.error('[DEBUG loadDebitTransactions] Failed to load debits:', response.status, response.statusText);
             const errorText = await response.text();
-            console.error('[DEBUG loadPaymentTransactions] Error response:', errorText);
+            console.error('[DEBUG loadDebitTransactions] Error response:', errorText);
             return;
         }
         
         const data = await response.json();
         
-        // Render payment transactions
-        if (data.payments && Array.isArray(data.payments)) {
-            renderPaymentTransactions(data.payments);
+        // Render debit transactions
+        if (data.debits && Array.isArray(data.debits)) {
+            renderDebitTransactions(data.debits);
         }
         
     } catch (error) {
-        console.error('[DEBUG loadPaymentTransactions] Exception:', error);
-        console.error('[DEBUG loadPaymentTransactions] Error message:', error.message);
+        console.error('[DEBUG loadDebitTransactions] Exception:', error);
+        console.error('[DEBUG loadDebitTransactions] Error message:', error.message);
     }
 }
 
 /**
- * Render payment transactions list
+ * Render debit transactions list
  */
-function renderPaymentTransactions(payments) {
+function renderDebitTransactions(debits) {
     const container = document.getElementById('transaction-list');
     
     if (!container) {
@@ -251,12 +251,12 @@ function renderPaymentTransactions(payments) {
     
     container.innerHTML = '';
     
-    if (!payments || payments.length === 0) {
+    if (!debits || debits.length === 0) {
         container.innerHTML = '<div class="transaction-empty">No transactions yet</div>';
         return;
     }
     
-    payments.forEach(payment => {
+    debits.forEach(debit => {
         const transactionItem = document.createElement('div');
         transactionItem.className = 'transaction-item';
         
@@ -266,11 +266,11 @@ function renderPaymentTransactions(payments) {
         
         const dateEl = document.createElement('div');
         dateEl.className = 'transaction-item-date';
-        dateEl.textContent = payment.payment_date;
+        dateEl.textContent = debit.debit_date;
         
         const accountEl = document.createElement('div');
         accountEl.className = 'transaction-item-account';
-        accountEl.textContent = payment.account_name;
+        accountEl.textContent = debit.account_name;
         
         leftDiv.appendChild(dateEl);
         leftDiv.appendChild(accountEl);
@@ -282,7 +282,7 @@ function renderPaymentTransactions(payments) {
         const amountEl = document.createElement('div');
         amountEl.className = 'transaction-item-amount';
         // Format amount: remove trailing .00 and add thousand delimiters
-        const amount = parseFloat(payment.amount);
+        const amount = parseFloat(debit.amount);
         const formattedAmount = amount % 1 === 0 
             ? amount.toLocaleString('ru-RU')
             : amount.toLocaleString('ru-RU', { minimumFractionDigits: 1, maximumFractionDigits: 2 });
@@ -290,11 +290,11 @@ function renderPaymentTransactions(payments) {
         
         rightDiv.appendChild(amountEl);
         
-        if (payment.comment) {
+        if (debit.comment) {
             const commentEl = document.createElement('div');
             commentEl.className = 'transaction-item-comment';
-            commentEl.title = payment.comment; // Show full comment on hover
-            commentEl.textContent = payment.comment;
+            commentEl.title = debit.comment; // Show full comment on hover
+            commentEl.textContent = debit.comment;
             rightDiv.appendChild(commentEl);
         }
         
@@ -520,8 +520,8 @@ async function initMiniApp() {
                 renderWelcomeScreen(data);
                 // Load and display user status badges after welcome screen renders
                 await loadUserStatus();
-                // Load and display payment transactions
-                await loadPaymentTransactions();
+                // Load and display debit transactions
+                await loadDebitTransactions();
             } else {
                 renderAccessDenied(data);
             }

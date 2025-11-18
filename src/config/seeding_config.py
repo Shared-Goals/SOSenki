@@ -60,6 +60,14 @@ class SeedingConfig:
         rule = self._config["schemas"]["users"]["transformations"]["name_based_rules"].get(name)
         return rule.copy() if rule else None
 
+    def get_additional_users(self) -> Dict[str, Dict[str, Any]]:
+        """Get users to be added during seeding (from 'add' section).
+
+        Returns:
+            Dict mapping user name to attributes dict
+        """
+        return self._config["schemas"]["users"].get("add", {}).copy()
+
     def get_user_parsing_rules(self) -> Dict[str, str]:
         """Get column names for user parsing."""
         return self._config["schemas"]["users"]["fields"]["parsing"]
@@ -108,24 +116,24 @@ class SeedingConfig:
         """Get list of fields that should be null for additional properties."""
         return self._config["schemas"]["properties"]["additional"]["fields"]["null_fields"]
 
-    def get_payment_parsing_rules(self) -> Dict[str, str]:
-        """Get column names for payment parsing."""
-        return self._config["schemas"]["payments"]["fields"]["parsing"]
+    def get_debit_parsing_rules(self) -> Dict[str, str]:
+        """Get column names for debit parsing."""
+        return self._config["schemas"]["debit_transactions"]["fields"]["parsing"]
 
-    def get_payment_account_name(self) -> str:
-        """Get the default account name for payments."""
-        additional = self._config["schemas"]["payments"].get("additional", {})
+    def get_debit_account_name(self) -> str:
+        """Get the default account name for debits."""
+        additional = self._config["schemas"]["debit_transactions"].get("additional", {})
         accounts = additional.get("accounts", {})
         defaults = accounts.get("defaults", {})
         return defaults.get("account_name", "Взносы")
 
-    def get_payment_range_names(self) -> list:
-        """Get the range names for payments (list of named ranges in Google Sheets).
+    def get_debit_range_names(self) -> list:
+        """Get the range names for debits (list of named ranges in Google Sheets).
 
         Returns:
             List of range name strings to process sequentially
         """
-        range_names = self._config["schemas"]["payments"]["range_name"]
+        range_names = self._config["schemas"]["debit_transactions"]["range_name"]
         # Handle both single string and array of strings
         if isinstance(range_names, list):
             return range_names
@@ -134,16 +142,54 @@ class SeedingConfig:
         else:
             return []
 
-    def get_payment_account_column(self) -> str:
-        """Get the column name for account names in payment rows.
+    def get_debit_account_column(self) -> str:
+        """Get the column name for account names in debit rows.
 
         Returns:
             Column name (e.g., 'Счет') or None if using default
         """
-        additional = self._config["schemas"]["payments"].get("additional", {})
+        additional = self._config["schemas"]["debit_transactions"].get("additional", {})
         accounts = additional.get("accounts", {})
         fields = accounts.get("fields", {})
         return fields.get("name_column")
+
+    def get_credit_parsing_rules(self) -> Dict[str, str]:
+        """Get column names for credit parsing.
+
+        Returns:
+            Dict with column mappings for credit data
+        """
+        return self._config["schemas"]["credit_transactions"]["fields"]["parsing"]
+
+    def get_credit_range_names(self) -> list:
+        """Get the range names for credits (list of named ranges in Google Sheets).
+
+        Returns:
+            List of range name strings to process sequentially
+        """
+        range_names = self._config["schemas"]["credit_transactions"]["range_name"]
+        # Handle both single string and array of strings
+        if isinstance(range_names, list):
+            return range_names
+        elif isinstance(range_names, str):
+            return [range_names]
+        else:
+            return []
+
+    def get_credit_defaults(self) -> Dict:
+        """Get default values and transformations for credits.
+
+        Returns:
+            Dict with defaults and name-based transformation rules
+        """
+        additional = self._config["schemas"]["credit_transactions"].get("additional", {})
+        if not additional:
+            # Return empty transformations if not configured
+            return {
+                "transformations": {},
+                "defaults": {},
+            }
+        return additional
 
     def get_user_range_name(self) -> str:
         """Get the named range name for users.
@@ -160,3 +206,32 @@ class SeedingConfig:
             Named range name (e.g., 'PropertiesOwners')
         """
         return self._config["schemas"]["properties"].get("range_name")
+
+    def get_service_periods(self) -> Dict[str, Dict]:
+        """Get service period mappings for all transaction ranges.
+
+        Resolves period references to full period definitions from service_periods block.
+        Service periods are shared across both debit and credit transactions.
+
+        Returns:
+            Dict mapping range names to period info (name, start_date, end_date)
+        """
+        # Get the central service periods definitions
+        service_periods_defs = self._config["schemas"]["service_periods"]
+
+        result = {}
+
+        # Process debit transaction service period mappings
+        debit_range_to_period_ref = self._config["schemas"]["debit_transactions"].get("service_periods", {})
+        for range_name, period_ref in debit_range_to_period_ref.items():
+            if period_ref in service_periods_defs:
+                result[range_name] = service_periods_defs[period_ref]
+
+        # Process credit (expense) service period mappings
+        credit_range_to_period_ref = self._config["schemas"]["credit_transactions"].get("service_periods", {})
+        for range_name, period_ref in credit_range_to_period_ref.items():
+            if period_ref in service_periods_defs:
+                result[range_name] = service_periods_defs[period_ref]
+
+        return result
+

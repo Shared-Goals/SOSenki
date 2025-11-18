@@ -22,7 +22,7 @@ class SeedConfig:
     credentials_path: str
     """Path to service account credentials JSON file (required)"""
 
-    database_url: str = "sqlite:///./sostenki.db"
+    database_url: str = "sqlite:///./sosenki.db"
     """SQLAlchemy database URL (default: local SQLite)"""
 
     log_file: str = "logs/seed.log"
@@ -67,7 +67,7 @@ def load_config() -> SeedConfig:
     # Read configuration
     google_sheet_id = os.getenv("GOOGLE_SHEET_ID")
     credentials_path = os.getenv("GOOGLE_CREDENTIALS_PATH", ".vscode/google_credentials.json")
-    database_url = os.getenv("DATABASE_URL", "sqlite:///./sostenki.db")
+    database_url = os.getenv("DATABASE_URL", "sqlite:///./sosenki.db")
     log_file = os.getenv("LOG_FILE", "logs/seed.log")
 
     # Validate GOOGLE_SHEET_ID

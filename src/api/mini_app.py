@@ -7,12 +7,13 @@ from typing import Any
 
 from fastapi import APIRouter, Body, Depends, Header, HTTPException, Request
 from pydantic import BaseModel, ConfigDict
-from sqlalchemy import desc, select
+from sqlalchemy import and_, desc, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from src.bot.config import bot_config
-from src.models.payment import Payment
+from src.models.transaction import Transaction
+from src.models.account import Account
 from src.services import get_async_session
 from src.services.user_service import UserService, UserStatusService
 
@@ -74,22 +75,22 @@ class UserStatusResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
-class PaymentTransactionResponse(BaseModel):
-    """Response schema for a single payment transaction."""
+class DebitTransactionResponse(BaseModel):
+    """Response schema for a single debit transaction."""
 
-    payment_id: int
+    debit_id: int
     amount: str  # Formatted decimal as string for display
-    payment_date: str  # Formatted as DD.MM.YYYY
+    debit_date: str  # Formatted as DD.MM.YYYY
     account_name: str
     comment: str | None
 
     model_config = ConfigDict(from_attributes=True)
 
 
-class PaymentListResponse(BaseModel):
-    """Response schema for payment list endpoint."""
+class DebitListResponse(BaseModel):
+    """Response schema for debit list endpoint."""
 
-    payments: list[PaymentTransactionResponse]
+    debits: list[DebitTransactionResponse]
     total_count: int
 
     model_config = ConfigDict(from_attributes=True)
@@ -344,22 +345,22 @@ async def menu_action(
         raise HTTPException(status_code=500, detail="Server error") from e
 
 
-@router.post("/payments", response_model=PaymentListResponse)
-async def get_user_payments(
+@router.post("/debits", response_model=DebitListResponse)
+async def get_user_debits(
     session: AsyncSession = Depends(get_async_session),  # noqa: B008
     authorization: str | None = Header(None, alias="Authorization"),
     body: dict[str, Any] | None = Body(None),
-) -> PaymentListResponse:
+) -> DebitListResponse:
     """
-    Get current user's payment transactions for display in dashboard.
+    Get current user's debit transactions for display in dashboard.
 
-    Returns list of user's payments sorted by date (most recent first).
+    Returns list of user's debits sorted by date (most recent first).
 
     Args:
         session: Database session
 
     Returns:
-        PaymentListResponse with list of payment transactions
+        DebitListResponse with list of debit transactions
 
     Raises:
         401: Invalid Telegram signature
@@ -374,7 +375,7 @@ async def get_user_payments(
         )
 
         if not parsed_data:
-            logger.warning("Invalid Telegram signature in /api/mini-app/payments")
+            logger.warning("Invalid Telegram signature in /api/mini-app/debits")
             raise HTTPException(status_code=401, detail="Invalid Telegram signature")
 
         # Extract telegram_id from parsed data
@@ -392,8 +393,8 @@ async def get_user_payments(
             logger.warning(f"Unauthorized access attempt: telegram_id={telegram_id}")
             raise HTTPException(status_code=403, detail="User not registered or inactive")
 
-        # Determine which user's payments to fetch
-        # If this user represents someone, fetch payments for the represented user
+        # Determine which user's debits to fetch
+        # If this user represents someone, fetch debits for the represented user
         target_user_id = user.id
         if user.representative_id:
             user_status_service = UserStatusService(session)
@@ -401,41 +402,42 @@ async def get_user_payments(
             if represented_user:
                 target_user_id = represented_user.id
 
-        # Query payments for the target user, sorted by date descending (most recent first)
-        # Eagerly load the account relationship to avoid async issues
+        # Query transactions where this user is the payer (from_account belongs to user)
+        # Eagerly load the from_account and to_account relationships
         query = (
-            select(Payment)
-            .where(Payment.owner_id == target_user_id)
-            .order_by(desc(Payment.payment_date))
-            .options(selectinload(Payment.account))
+            select(Transaction)
+            .join(Account, Transaction.from_account_id == Account.id)
+            .where(Account.user_id == target_user_id)
+            .order_by(desc(Transaction.transaction_date))
+            .options(selectinload(Transaction.from_account), selectinload(Transaction.to_account))
         )
         result = await session.execute(query)
-        payments = result.scalars().all()
+        transactions = result.scalars().all()
 
-        # Format payment responses
-        payment_responses = []
-        for payment in payments:
+        # Format debit responses
+        debit_responses = []
+        for transaction in transactions:
             # Format date as DD.MM.YYYY
-            formatted_date = payment.payment_date.strftime("%d.%m.%Y")
+            formatted_date = transaction.transaction_date.strftime("%d.%m.%Y")
             # Format amount with 2 decimal places
-            formatted_amount = f"{float(payment.amount):.2f}"
+            formatted_amount = f"{float(transaction.amount):.2f}"
 
-            payment_responses.append(
-                PaymentTransactionResponse(
-                    payment_id=payment.id,
+            debit_responses.append(
+                DebitTransactionResponse(
+                    debit_id=transaction.id,
                     amount=formatted_amount,
-                    payment_date=formatted_date,
-                    account_name=payment.account.name,
-                    comment=payment.comment,
+                    debit_date=formatted_date,
+                    account_name=transaction.to_account.name,
+                    comment=transaction.description,
                 )
             )
 
-        return PaymentListResponse(payments=payment_responses, total_count=len(payment_responses))
+        return DebitListResponse(debits=debit_responses, total_count=len(debit_responses))
 
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Error in /api/mini-app/payments: {e}", exc_info=True)
+        logger.error(f"Error in /api/mini-app/debits: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail="Server error") from e
 
 

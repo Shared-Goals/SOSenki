@@ -4,8 +4,8 @@ import pytest
 from pydantic import ValidationError
 
 from src.api.mini_app import (
-    PaymentListResponse,
-    PaymentTransactionResponse,
+    DebitListResponse,
+    DebitTransactionResponse,
     UserStatusResponse,
 )
 
@@ -128,256 +128,256 @@ def test_user_status_response_schema_invalid_share_percentage_type():
     assert response.share_percentage == 2  # Pydantic accepts it, but backend should not send it
 
 
-# Payment Transaction Response Tests
+# Debit Transaction Response Tests
 
 
-def test_payment_transaction_response_schema_valid():
-    """Verify PaymentTransactionResponse schema with valid data."""
+def test_debit_transaction_response_schema_valid():
+    """Verify DebitTransactionResponse schema with valid data."""
     response_data = {
-        "payment_id": 1,
+        "debit_id": 1,
         "amount": "150.50",
-        "payment_date": "15.11.2025",
+        "debit_date": "15.11.2025",
         "account_name": "Взносы",
         "comment": "Monthly contribution",
     }
-    response = PaymentTransactionResponse(**response_data)
-    assert response.payment_id == 1
+    response = DebitTransactionResponse(**response_data)
+    assert response.debit_id == 1
     assert response.amount == "150.50"
-    assert response.payment_date == "15.11.2025"
+    assert response.debit_date == "15.11.2025"
     assert response.account_name == "Взносы"
     assert response.comment == "Monthly contribution"
 
 
-def test_payment_transaction_response_schema_no_comment():
-    """Verify PaymentTransactionResponse with null comment."""
+def test_debit_transaction_response_schema_no_comment():
+    """Verify DebitTransactionResponse with null comment."""
     response_data = {
-        "payment_id": 2,
+        "debit_id": 2,
         "amount": "75.00",
-        "payment_date": "10.11.2025",
+        "debit_date": "10.11.2025",
         "account_name": "Траты",
         "comment": None,
     }
-    response = PaymentTransactionResponse(**response_data)
-    assert response.payment_id == 2
+    response = DebitTransactionResponse(**response_data)
+    assert response.debit_id == 2
     assert response.comment is None
 
 
-def test_payment_transaction_response_schema_zero_amount():
-    """Verify PaymentTransactionResponse with zero amount (edge case)."""
+def test_debit_transaction_response_schema_zero_amount():
+    """Verify DebitTransactionResponse with zero amount (edge case)."""
     response_data = {
-        "payment_id": 3,
+        "debit_id": 3,
         "amount": "0.00",
-        "payment_date": "01.01.2025",
+        "debit_date": "01.01.2025",
         "account_name": "Test",
         "comment": None,
     }
-    response = PaymentTransactionResponse(**response_data)
+    response = DebitTransactionResponse(**response_data)
     assert response.amount == "0.00"
 
 
-def test_payment_transaction_response_schema_missing_required_field():
+def test_debit_transaction_response_schema_missing_required_field():
     """Verify ValidationError for missing required field."""
     response_data = {
-        "payment_id": 4,
+        "debit_id": 4,
         "amount": "100.00",
-        "payment_date": "15.11.2025",
+        "debit_date": "15.11.2025",
         # Missing account_name (required)
     }
     with pytest.raises(ValidationError):
-        PaymentTransactionResponse(**response_data)
+        DebitTransactionResponse(**response_data)
 
 
-def test_payment_transaction_response_schema_invalid_amount_type():
+def test_debit_transaction_response_schema_invalid_amount_type():
     """Verify ValidationError for numeric amount (should be string)."""
     response_data = {
-        "payment_id": 5,
+        "debit_id": 5,
         "amount": 150.50,  # Should be string
-        "payment_date": "15.11.2025",
+        "debit_date": "15.11.2025",
         "account_name": "Взносы",
         "comment": None,
     }
     # Pydantic strictly requires string for amount field
     with pytest.raises(ValidationError):
-        PaymentTransactionResponse(**response_data)
+        DebitTransactionResponse(**response_data)
 
 
-def test_payment_transaction_response_schema_date_format():
-    """Verify PaymentTransactionResponse preserves DD.MM.YYYY date format."""
+def test_debit_transaction_response_schema_date_format():
+    """Verify DebitTransactionResponse preserves DD.MM.YYYY date format."""
     response_data = {
-        "payment_id": 6,
+        "debit_id": 6,
         "amount": "100.00",
-        "payment_date": "01.01.2025",
+        "debit_date": "01.01.2025",
         "account_name": "Account",
         "comment": None,
     }
-    response = PaymentTransactionResponse(**response_data)
+    response = DebitTransactionResponse(**response_data)
     # Verify format is preserved
-    assert response.payment_date == "01.01.2025"
-    parts = response.payment_date.split(".")
+    assert response.debit_date == "01.01.2025"
+    parts = response.debit_date.split(".")
     assert len(parts) == 3
     assert len(parts[0]) == 2  # DD
     assert len(parts[1]) == 2  # MM
     assert len(parts[2]) == 4  # YYYY
 
 
-# Payment List Response Tests
+# Debit List Response Tests
 
 
-def test_payment_list_response_schema_with_multiple_payments():
-    """Verify PaymentListResponse schema with multiple payments."""
-    payments_data = [
+def test_debit_list_response_schema_with_multiple_debits():
+    """Verify DebitListResponse schema with multiple debits."""
+    debits_data = [
         {
-            "payment_id": 1,
+            "debit_id": 1,
             "amount": "150.50",
-            "payment_date": "15.11.2025",
+            "debit_date": "15.11.2025",
             "account_name": "Взносы",
             "comment": "November contribution",
         },
         {
-            "payment_id": 2,
+            "debit_id": 2,
             "amount": "75.00",
-            "payment_date": "10.11.2025",
+            "debit_date": "10.11.2025",
             "account_name": "Траты",
             "comment": None,
         },
     ]
     response_data = {
-        "payments": payments_data,
+        "debits": debits_data,
         "total_count": 2,
     }
-    response = PaymentListResponse(**response_data)
-    assert len(response.payments) == 2
+    response = DebitListResponse(**response_data)
+    assert len(response.debits) == 2
     assert response.total_count == 2
-    assert response.payments[0].payment_id == 1
-    assert response.payments[1].payment_id == 2
+    assert response.debits[0].debit_id == 1
+    assert response.debits[1].debit_id == 2
 
 
-def test_payment_list_response_schema_empty_payments():
-    """Verify PaymentListResponse with empty payments list."""
+def test_debit_list_response_schema_empty_debits():
+    """Verify DebitListResponse with empty debits list."""
     response_data = {
-        "payments": [],
+        "debits": [],
         "total_count": 0,
     }
-    response = PaymentListResponse(**response_data)
-    assert len(response.payments) == 0
+    response = DebitListResponse(**response_data)
+    assert len(response.debits) == 0
     assert response.total_count == 0
 
 
-def test_payment_list_response_schema_total_count_matches_length():
-    """Verify total_count matches payments list length."""
-    payments_data = [
+def test_debit_list_response_schema_total_count_matches_length():
+    """Verify total_count matches debits list length."""
+    debits_data = [
         {
-            "payment_id": i,
+            "debit_id": i,
             "amount": f"{100 + i}.00",
-            "payment_date": "15.11.2025",
+            "debit_date": "15.11.2025",
             "account_name": "Взносы",
             "comment": None,
         }
         for i in range(5)
     ]
     response_data = {
-        "payments": payments_data,
-        "total_count": len(payments_data),
+        "debits": debits_data,
+        "total_count": len(debits_data),
     }
-    response = PaymentListResponse(**response_data)
-    assert response.total_count == len(response.payments)
+    response = DebitListResponse(**response_data)
+    assert response.total_count == len(response.debits)
     assert response.total_count == 5
 
 
-def test_payment_list_response_schema_missing_required_field():
+def test_debit_list_response_schema_missing_required_field():
     """Verify ValidationError for missing required field."""
     response_data = {
-        "payments": [],
+        "debits": [],
         # Missing total_count (required)
     }
     with pytest.raises(ValidationError):
-        PaymentListResponse(**response_data)
+        DebitListResponse(**response_data)
 
 
-def test_payment_list_response_schema_payments_ordering():
-    """Verify payments list can be ordered (by date descending)."""
-    payments_data = [
+def test_debit_list_response_schema_debits_ordering():
+    """Verify debits list can be ordered (by date descending)."""
+    debits_data = [
         {
-            "payment_id": 1,
+            "debit_id": 1,
             "amount": "100.00",
-            "payment_date": "15.11.2025",
+            "debit_date": "15.11.2025",
             "account_name": "Взносы",
             "comment": None,
         },
         {
-            "payment_id": 2,
+            "debit_id": 2,
             "amount": "200.00",
-            "payment_date": "10.11.2025",
+            "debit_date": "10.11.2025",
             "account_name": "Взносы",
             "comment": None,
         },
         {
-            "payment_id": 3,
+            "debit_id": 3,
             "amount": "150.00",
-            "payment_date": "20.11.2025",
+            "debit_date": "20.11.2025",
             "account_name": "Траты",
             "comment": None,
         },
     ]
     response_data = {
-        "payments": payments_data,
+        "debits": debits_data,
         "total_count": 3,
     }
-    response = PaymentListResponse(**response_data)
+    response = DebitListResponse(**response_data)
     # Verify order is preserved (should be most recent first)
-    assert response.payments[0].payment_date == "15.11.2025"
-    assert response.payments[1].payment_date == "10.11.2025"
-    assert response.payments[2].payment_date == "20.11.2025"
+    assert response.debits[0].debit_date == "15.11.2025"
+    assert response.debits[1].debit_date == "10.11.2025"
+    assert response.debits[2].debit_date == "20.11.2025"
 
 
-def test_payment_list_response_schema_large_amount():
-    """Verify PaymentListResponse handles large amounts."""
+def test_debit_list_response_schema_large_amount():
+    """Verify DebitListResponse handles large amounts."""
     response_data = {
-        "payments": [
+        "debits": [
             {
-                "payment_id": 1,
+                "debit_id": 1,
                 "amount": "999999.99",
-                "payment_date": "15.11.2025",
-                "account_name": "Large Payment",
+                "debit_date": "15.11.2025",
+                "account_name": "Large Debit",
                 "comment": None,
             }
         ],
         "total_count": 1,
     }
-    response = PaymentListResponse(**response_data)
-    assert response.payments[0].amount == "999999.99"
+    response = DebitListResponse(**response_data)
+    assert response.debits[0].amount == "999999.99"
 
 
-def test_payment_list_response_schema_different_accounts():
-    """Verify PaymentListResponse with payments from different accounts."""
+def test_debit_list_response_schema_different_accounts():
+    """Verify DebitListResponse with debits from different accounts."""
     response_data = {
-        "payments": [
+        "debits": [
             {
-                "payment_id": 1,
+                "debit_id": 1,
                 "amount": "100.00",
-                "payment_date": "15.11.2025",
+                "debit_date": "15.11.2025",
                 "account_name": "Взносы",
                 "comment": None,
             },
             {
-                "payment_id": 2,
+                "debit_id": 2,
                 "amount": "50.00",
-                "payment_date": "14.11.2025",
+                "debit_date": "14.11.2025",
                 "account_name": "Траты",
                 "comment": None,
             },
             {
-                "payment_id": 3,
+                "debit_id": 3,
                 "amount": "200.00",
-                "payment_date": "13.11.2025",
+                "debit_date": "13.11.2025",
                 "account_name": "Other Account",
                 "comment": None,
             },
         ],
         "total_count": 3,
     }
-    response = PaymentListResponse(**response_data)
-    accounts = [p.account_name for p in response.payments]
+    response = DebitListResponse(**response_data)
+    accounts = [d.account_name for d in response.debits]
     assert "Взносы" in accounts
     assert "Траты" in accounts
     assert "Other Account" in accounts
