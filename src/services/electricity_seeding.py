@@ -76,6 +76,36 @@ def parse_electricity_row(  # noqa: C901
     }
 
 
+def _find_property_by_name_or_type(
+    session: Session, user_id: int, property_name: str
+) -> Optional[Property]:
+    """Find property by name (if numeric) or by type.
+
+    Args:
+        session: SQLAlchemy session
+        user_id: Owner user ID
+        property_name: Property name/type to search for
+
+    Returns:
+        Property object or None if not found
+    """
+    try:
+        int(property_name)  # noqa: F841
+        # If numeric, search by property_name
+        return (
+            session.query(Property)
+            .filter(Property.owner_id == user_id, Property.property_name == property_name)
+            .first()
+        )
+    except ValueError:
+        # Not numeric, search by type
+        return (
+            session.query(Property)
+            .filter(Property.owner_id == user_id, Property.type == property_name)
+            .first()
+        )
+
+
 def create_electricity_readings_and_bills(
     session: Session,
     reading_dicts: List[Dict],
@@ -124,11 +154,8 @@ def create_electricity_readings_and_bills(
         # Find property by type and owner
         # The property_name in electricity data is actually the property type
         # (e.g., "Большой", "Малый", "Баня")
-        property_obj = (
-            session.query(Property)
-            .filter(Property.owner_id == user.id, Property.type == property_name)
-            .first()
-        )
+        # If property_name is numeric, search by Property.property_name; otherwise by Property.type
+        property_obj = _find_property_by_name_or_type(session, user.id, property_name)
 
         try:
             # Determine if we have a property match

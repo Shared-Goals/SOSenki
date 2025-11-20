@@ -13,6 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.bot.config import bot_config
 from src.models.account import Account
 from src.models.transaction import Transaction
+from src.models.user import User
 from src.services import get_async_session
 from src.services.user_service import UserService, UserStatusService
 
@@ -53,6 +54,35 @@ def _extract_init_data(
                 return raw.strip()
 
     return None
+
+
+async def _resolve_target_user(
+    session: AsyncSession,
+    telegram_id: str,
+    representing: bool | None = None,
+) -> tuple[User, bool]:
+    """Resolve the target user (authenticated vs represented) for dataset endpoints."""
+    user_service = UserService(session)
+    user = await user_service.get_by_telegram_id(telegram_id)
+
+    if not user or not user.is_active:
+        logger.warning(f"Unauthorized access attempt: telegram_id={telegram_id}")
+        raise HTTPException(status_code=403, detail="User not registered or inactive")
+
+    target_user = user
+    switched = False
+    consider_represented = representing is True or (
+        representing is None and user.representative_id is not None
+    )
+
+    if consider_represented and user.representative_id:
+        user_status_service = UserStatusService(session)
+        represented_user = await user_status_service.get_represented_user(user.id)
+        if represented_user:
+            target_user = represented_user
+            switched = True
+
+    return target_user, switched
 
 
 # Response schemas
@@ -424,6 +454,7 @@ async def get_user_status(
 
 @router.post("/properties")
 async def get_properties(
+    representing: bool | None = None,
     session: AsyncSession = Depends(get_async_session),  # noqa: B008
     authorization: str | None = Header(None, alias="Authorization"),  # noqa: B008
     body: dict[str, Any] | None = Body(None),  # noqa: B008
@@ -457,35 +488,15 @@ async def get_properties(
             logger.warning("Invalid Telegram signature in /api/mini-app/properties")
             raise HTTPException(status_code=401, detail="Invalid Telegram signature")
 
-        # Extract telegram_id from parsed data
         user_data = json.loads(parsed_data.get("user", "{}"))
         telegram_id = str(user_data.get("id"))
 
         if not telegram_id:
             raise HTTPException(status_code=401, detail="No user ID in init data")
 
-        # Get user from database
-        user_service = UserService(session)
-        user = await user_service.get_by_telegram_id(telegram_id)
+        target_user, _ = await _resolve_target_user(session, telegram_id, representing)
 
-        if not user or not user.is_active:
-            logger.warning(f"Unauthorized access attempt: telegram_id={telegram_id}")
-            raise HTTPException(status_code=403, detail="User not registered or inactive")
-
-        # Determine target user for property lookup (context switching)
-        target_user_id = user.id
-        is_owner = user.is_owner
-
-        # If user represents someone, switch context to represented user
-        if user.representative_id:
-            user_status_service = UserStatusService(session)
-            represented_user = await user_status_service.get_represented_user(user.id)
-            if represented_user:
-                target_user_id = represented_user.id
-                is_owner = represented_user.is_owner
-
-        # Only owners can view properties
-        if not is_owner:
+        if not target_user.is_owner:
             logger.warning(f"Non-owner attempted to access properties: telegram_id={telegram_id}")
             raise HTTPException(status_code=403, detail="Only owners can view properties")
 
@@ -495,7 +506,7 @@ async def get_properties(
         stmt = (
             select(Property)
             .where(
-                Property.owner_id == target_user_id,
+                Property.owner_id == target_user.id,
                 Property.is_active == True,  # noqa: E712
             )
             .order_by(Property.id)
@@ -561,8 +572,51 @@ class TransactionListResponse(BaseModel):
     transactions: list[TransactionResponse]
 
 
+class ElectricityBillResponse(BaseModel):
+    """Response schema for a single electricity bill."""
+
+    period_name: str
+    """Service period name (e.g., '2024-Q4')."""
+
+    period_start_date: str
+    """Period start date in ISO format."""
+
+    period_end_date: str
+    """Period end date in ISO format."""
+
+    property_name: str | None = None
+    """Property name if bill is for a property."""
+
+    property_type: str | None = None
+    """Property type if bill is for a property."""
+
+    start_reading: float
+    """Meter reading at period start."""
+
+    end_reading: float
+    """Meter reading at period end."""
+
+    consumption: float
+    """Electricity consumption (end - start)."""
+
+    bill_amount: float
+    """Bill amount in rubles."""
+
+    comment: str | None = None
+    """Optional comment (e.g., property name when property not found)."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class ElectricityBillsListResponse(BaseModel):
+    """Response for electricity bills list."""
+
+    bills: list[ElectricityBillResponse]
+
+
 @router.post("/transactions-list")
 async def transactions_list(
+    representing: bool | None = None,
     scope: str = "all",
     authorization: str | None = Header(None),  # noqa: B008
     x_telegram_init_data: str | None = Header(None),  # noqa: B008
@@ -574,9 +628,13 @@ async def transactions_list(
     Args:
         scope: Filter scope - 'personal' returns only user's transactions,
                'all' (default) returns all organization transactions.
+        representing: If True, return transactions for represented user instead of authenticated user.
 
     Returns all transactions or user's transactions based on scope parameter.
     """
+    logger.info(
+        f"[transactions ENDPOINT START] representing={representing} (type={type(representing).__name__}), scope={scope}"
+    )
     # Extract and verify init data
     init_data_raw = _extract_init_data(authorization, x_telegram_init_data, body)
     parsed_data = UserService.verify_telegram_webapp_signature(
@@ -587,23 +645,16 @@ async def transactions_list(
         logger.warning("Invalid Telegram signature in /api/mini-app/transactions-list")
         raise HTTPException(status_code=401, detail="Invalid Telegram signature")
 
-    # Extract telegram_id from parsed data
-    user_data = json.loads(parsed_data.get("user", "{}"))
-    telegram_id = str(user_data.get("id"))
-
-    if not telegram_id:
-        raise HTTPException(status_code=401, detail="No user ID in init data")
-
     try:
-        # Get user from database
-        user_service = UserService(db)
-        user = await user_service.get_by_telegram_id(telegram_id)
+        # Extract telegram_id from parsed data
+        user_data = json.loads(parsed_data.get("user", "{}"))
+        telegram_id = str(user_data.get("id"))
 
-        if not user or not user.is_active:
-            logger.warning(f"Unauthorized access attempt: telegram_id={telegram_id}")
-            raise HTTPException(status_code=403, detail="User not registered or inactive")
+        if not telegram_id:
+            raise HTTPException(status_code=401, detail="No user ID in init data")
 
-        user_id = user.id
+        target_user, _ = await _resolve_target_user(db, telegram_id, representing)
+        user_id = target_user.id
 
         # Get user's accounts for personal scope filtering
         user_accounts_stmt = select(Account).where(Account.user_id == user_id)
@@ -612,11 +663,8 @@ async def transactions_list(
         account_ids = [acc.id for acc in user_accounts]
 
         if not account_ids and scope == "personal":
-            # No transactions if user has no accounts
             return TransactionListResponse(transactions=[])
 
-        # Get all transactions involving user's accounts
-        # Use separate joins for from and to accounts
         from_account_alias = (
             select(Account.name.label("from_ac_name"))
             .where(Account.id == Transaction.from_account_id)
@@ -631,7 +679,6 @@ async def transactions_list(
             .scalar_subquery()
         )
 
-        # Build WHERE clause based on scope
         where_clause = []
         if scope == "personal" and account_ids:
             where_clause = [
@@ -666,8 +713,141 @@ async def transactions_list(
 
         return TransactionListResponse(transactions=transactions_list_data)
 
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Error in /api/mini-app/transactions-list: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Server error") from e
+
+
+@router.post("/electricity-bills")
+async def electricity_bills(
+    representing: bool | None = None,
+    authorization: str | None = Header(None),  # noqa: B008
+    x_telegram_init_data: str | None = Header(None),  # noqa: B008
+    body: dict[str, Any] | None = Body(None),  # noqa: B008
+    db: AsyncSession = Depends(get_async_session),  # noqa: B008
+) -> ElectricityBillsListResponse:
+    """Get list of electricity bills for authenticated user.
+
+    Returns bills for properties owned by the user or bills directly assigned to the user.
+    Each bill includes period information, meter readings, consumption, and amount.
+
+    Args:
+        representing: If True, return bills for represented user instead of authenticated user.
+
+    Returns:
+        ElectricityBillsListResponse with list of bills sorted by period (most recent first).
+
+    Raises:
+        401: Invalid Telegram signature
+        403: User not registered or inactive
+        500: Server error
+    """
+    from src.models.electricity_bill import ElectricityBill
+    from src.models.electricity_reading import ElectricityReading
+    from src.models.property import Property
+    from src.models.service_period import ServicePeriod
+
+    logger.info(
+        f"[electricity-bills ENDPOINT START] representing={representing} (type={type(representing).__name__})"
+    )
+    # Extract and verify init data
+    init_data_raw = _extract_init_data(authorization, x_telegram_init_data, body)
+    parsed_data = UserService.verify_telegram_webapp_signature(
+        init_data=init_data_raw or "", bot_token=bot_config.telegram_bot_token
+    )
+
+    if not parsed_data:
+        logger.warning("Invalid Telegram signature in /api/mini-app/electricity-bills")
+        raise HTTPException(status_code=401, detail="Invalid Telegram signature")
+
+    # Extract telegram_id from parsed data
+    user_data = json.loads(parsed_data.get("user", "{}"))
+    telegram_id = str(user_data.get("id"))
+
+    if not telegram_id:
+        raise HTTPException(status_code=401, detail="No user ID in init data")
+
+    try:
+        target_user, _ = await _resolve_target_user(db, telegram_id, representing)
+        target_user_id = target_user.id
+
+        user_id = target_user_id
+
+        # Get user's property IDs
+        user_properties_stmt = select(Property.id).where(Property.owner_id == user_id)
+        result = await db.execute(user_properties_stmt)
+        user_property_ids = [row[0] for row in result.all()]
+
+        # Query bills for user or user's properties
+        bills_stmt = (
+            select(ElectricityBill, ServicePeriod, Property)
+            .join(ServicePeriod, ElectricityBill.service_period_id == ServicePeriod.id)
+            .outerjoin(Property, ElectricityBill.property_id == Property.id)
+            .where(
+                (ElectricityBill.user_id == user_id)
+                | (ElectricityBill.property_id.in_(user_property_ids))
+            )
+            .order_by(ServicePeriod.start_date.desc())
+        )
+
+        result = await db.execute(bills_stmt)
+        bills_data = result.all()
+
+        # Build response list
+        bills_response = []
+
+        for bill, period, property_obj in bills_data:
+            # Get readings for this bill
+            readings_stmt = select(ElectricityReading).where(
+                ElectricityReading.reading_date.in_([period.start_date, period.end_date])
+            )
+
+            if bill.property_id:
+                readings_stmt = readings_stmt.where(
+                    ElectricityReading.property_id == bill.property_id
+                )
+            else:
+                readings_stmt = readings_stmt.where(ElectricityReading.user_id == bill.user_id)
+
+            readings_result = await db.execute(readings_stmt)
+            readings = readings_result.scalars().all()
+
+            # Sort readings by date to identify start and end
+            readings_sorted = sorted(readings, key=lambda r: r.reading_date)
+
+            # Extract start and end readings (default to 0 if missing)
+            start_reading = float(readings_sorted[0].reading_value) if readings_sorted else 0.0
+            end_reading = (
+                float(readings_sorted[-1].reading_value)
+                if len(readings_sorted) > 1
+                else start_reading
+            )
+            consumption = end_reading - start_reading
+
+            # Build bill response
+            bill_response = ElectricityBillResponse(
+                period_name=period.name,
+                period_start_date=period.start_date.isoformat(),
+                period_end_date=period.end_date.isoformat(),
+                property_name=property_obj.property_name if property_obj else None,
+                property_type=property_obj.type if property_obj else None,
+                start_reading=start_reading,
+                end_reading=end_reading,
+                consumption=consumption,
+                bill_amount=float(bill.bill_amount),
+                comment=bill.comment,
+            )
+
+            bills_response.append(bill_response)
+
+        return ElectricityBillsListResponse(bills=bills_response)
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error in /api/mini-app/electricity-bills: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail="Server error") from e
 
 
