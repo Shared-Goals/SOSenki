@@ -20,11 +20,9 @@ from src.models.account import Account
 from src.models.property import Property
 from src.models.user import User
 from src.services.credit_seeding import (
-    parse_credit_range_with_service_period,
     parse_credit_row,
 )
 from src.services.debit_seeding import (
-    parse_debit_range_with_service_period,
     parse_debit_row,
 )
 from src.services.errors import DatabaseError, TransactionError
@@ -61,6 +59,12 @@ class SeedResult:
     credits_created: int = 0
     """Number of credits (from credit transactions) created"""
 
+    electricity_readings_created: int = 0
+    """Number of electricity readings created"""
+
+    electricity_bills_created: int = 0
+    """Number of electricity bills created"""
+
     rows_skipped: int = 0
     """Number of rows skipped due to validation errors"""
 
@@ -78,6 +82,9 @@ class SeedResult:
                 f"  Users: {self.users_created}\n"
                 f"  Properties: {self.properties_created}\n"
                 f"  Debits: {self.debits_created}\n"
+                f"  Credits: {self.credits_created}\n"
+                f"  Electricity readings: {self.electricity_readings_created}\n"
+                f"  Electricity bills: {self.electricity_bills_created}\n"
                 f"  Skipped: {self.rows_skipped}"
             )
         else:
@@ -97,6 +104,112 @@ class SeededService:
         """
         self.session = session
         self.logger = logger or logging.getLogger("sosenki.seeding.main")
+
+    def _process_transaction_range(
+        self,
+        google_sheets_client: GoogleSheetsClient,
+        spreadsheet_id: str,
+        range_names: List[str],
+        service_periods_map: Dict[str, Dict],
+        user_map: Dict[str, User],
+        parse_func,
+        create_func,
+        transaction_type: str = "transaction",
+        extra_args: Dict = None,
+    ) -> int:
+        """Process a set of transaction ranges from Google Sheets.
+
+        Args:
+            google_sheets_client: GoogleSheetsClient instance
+            spreadsheet_id: Google Sheet ID
+            range_names: List of named ranges to process
+            service_periods_map: Unified service periods mapping
+            user_map: User name -> User object mapping
+            parse_func: Row parsing function
+            create_func: Transaction creation function
+            transaction_type: Type of transaction (for logging)
+            extra_args: Extra arguments to pass to parse_func and create_func
+
+        Returns:
+            Total number of transactions created
+        """
+        extra_args = extra_args or {}
+        total_created = 0
+        rows_skipped = 0
+
+        for range_name in range_names:
+            self.logger.info(f"Fetching {transaction_type}s from range '{range_name}'...")
+
+            try:
+                sheet_data = google_sheets_client.fetch_sheet_data(
+                    spreadsheet_id, range_spec=range_name
+                )
+
+                if not sheet_data or len(sheet_data) < 2:
+                    self.logger.warning(f"Range '{range_name}' has insufficient data")
+                    continue
+
+                header_row = sheet_data[0]
+                data_rows = sheet_data[1:]
+
+                # Parse rows
+                row_dicts: List[Dict] = []
+                for row_idx, row_values in enumerate(data_rows, start=1):
+                    try:
+                        row_dict = sheet_row_to_dict(row_values, header_row)
+                        # Call appropriate parse function
+                        if transaction_type == "debit":
+                            parsed = parse_func(
+                                row_dict,
+                                extra_args.get("account_column"),
+                                extra_args.get("config"),
+                            )
+                        else:
+                            parsed = parse_func(row_dict)
+
+                        if parsed:
+                            row_dicts.append(parsed)
+                    except Exception as e:
+                        self.logger.debug(
+                            f"{transaction_type.capitalize()} row {row_idx}: Skipped ({e})"
+                        )
+                        rows_skipped += 1
+
+                self.logger.info(
+                    f"Parsed {len(row_dicts)} {transaction_type} records from '{range_name}'"
+                )
+
+                # Get service period for this range
+                if row_dicts and range_name in service_periods_map:
+                    try:
+                        period_info = service_periods_map[range_name]
+
+                        service_period = get_or_create_service_period(
+                            self.session,
+                            period_info.get("name"),  # Period name (e.g., "2024-2025")
+                            period_info.get("start_date"),
+                            period_info.get("end_date"),
+                        )
+
+                        # Create transactions
+                        range_created = create_func(
+                            self.session,
+                            row_dicts,
+                            user_map=user_map,
+                            period=service_period,
+                            default_account_name=extra_args.get("default_account_name", "Взносы"),
+                        )
+                        total_created += range_created
+                    except Exception as e:
+                        self.logger.error(
+                            f"Failed to create {transaction_type}s from '{range_name}': {e}"
+                        )
+                        rows_skipped += len(row_dicts)
+
+            except Exception as e:
+                self.logger.error(f"Failed to process range '{range_name}': {e}")
+
+        return total_created
 
     def execute_seed(  # noqa: C901
         self,
@@ -247,183 +360,173 @@ class SeededService:
             except Exception as e:
                 raise TransactionError(f"Failed to create properties: {e}") from e
 
-            # Step 7: Insert debit transactions
-            total_debits = 0
+            # Step 7: Pre-create all service periods from config
+            # This ensures all periods exist even if no data is processed for them
             try:
-                config = SeedingConfig.load()
-                debit_range_names = config.get_debit_range_names()
-                default_account_name = config.get_debit_account_name()
+                service_periods_map = config.get_service_periods()
 
-                self.logger.info(f"Processing {len(debit_range_names)} debit range(s)")
-
-                for debit_range_name in debit_range_names:
-                    self.logger.info(f"Fetching debits from range '{debit_range_name}'...")
-
-                    # Fetch debit data using named range
-                    debit_sheet_data = google_sheets_client.fetch_sheet_data(
-                        spreadsheet_id, range_spec=debit_range_name
+                for _, period_info in service_periods_map.items():
+                    get_or_create_service_period(
+                        self.session,
+                        period_info.get("name"),
+                        period_info.get("start_date"),
+                        period_info.get("end_date"),
                     )
 
-                    if debit_sheet_data:
-                        # Named ranges: header at [0], data from [1:]
-                        if len(debit_sheet_data) < 2:
-                            self.logger.warning(
-                                f"Debit range '{debit_range_name}' has insufficient data"
-                            )
-                            continue
+                self.logger.info(f"✓ Pre-created {len(service_periods_map)} service periods")
+            except Exception as e:
+                raise TransactionError(f"Failed to create service periods: {e}") from e
 
-                        debit_header_row = debit_sheet_data[0]
-                        debit_data_rows = debit_sheet_data[1:]
+            # Step 8: Process transactions (debits and credits) from seeding config
+            # Uses unified service periods from config
+            total_debits = 0
+            total_credits = 0
+            total_electricity_readings = 0
+            total_electricity_bills = 0
+            try:
+                # Get unified service periods and transaction range mappings
+                service_periods_map = config.get_service_periods()
+                debit_ranges = config.get_debit_range_names()
+                credit_ranges = config.get_credit_range_names()
 
-                        if debit_data_rows:
-                            # Parse debit rows
-                            debit_dicts: List[Dict] = []
-                            account_column = config.get_debit_account_column()
+                # Process debit transactions
+                if debit_ranges:
+                    default_account_name = config.get_debit_account_name()
+                    account_column = config.get_debit_account_column()
+                    self.logger.info(f"Processing {len(debit_ranges)} debit range(s)")
 
-                            for row_idx, row_values in enumerate(debit_data_rows, start=1):
-                                try:
-                                    row_dict = sheet_row_to_dict(row_values, debit_header_row)
-                                    debit_dict = parse_debit_row(row_dict, account_column, config)
-                                    if debit_dict:
-                                        debit_dicts.append(debit_dict)
-                                except Exception as e:
-                                    self.logger.debug(f"Debit row {row_idx}: Skipped ({e})")
-                                    rows_skipped += 1
+                    total_debits = self._process_transaction_range(
+                        google_sheets_client,
+                        spreadsheet_id,
+                        debit_ranges,
+                        service_periods_map,
+                        created_users,
+                        parse_debit_row,
+                        create_debit_transactions,
+                        transaction_type="debit",
+                        extra_args={
+                            "account_column": account_column,
+                            "config": config,
+                            "default_account_name": default_account_name,
+                        },
+                    )
 
-                            self.logger.info(
-                                f"Parsed {len(debit_dicts)} debit records from '{debit_range_name}'"
-                            )
+                # Process credit transactions
+                if credit_ranges:
+                    self.logger.info(f"Processing {len(credit_ranges)} credit range(s)")
 
-                            # Get service period info for this range
-                            if debit_dicts:
-                                try:
-                                    debit_dicts, period_info = (
-                                        parse_debit_range_with_service_period(
-                                            debit_dicts, debit_range_name, config
-                                        )
-                                    )
-
-                                    # Get or create service period from info
-                                    service_period = get_or_create_service_period(
-                                        self.session,
-                                        period_info["name"],
-                                        period_info["start_date"],
-                                        period_info["end_date"],
-                                    )
-
-                                    # Create transactions using new service
-                                    range_debits = create_debit_transactions(
-                                        self.session,
-                                        debit_dicts,
-                                        user_map=created_users,
-                                        period=service_period,
-                                        default_account_name=default_account_name,
-                                    )
-                                    total_debits += range_debits
-                                except Exception as e:
-                                    self.logger.error(
-                                        f"Failed to create transactions from '{debit_range_name}': {e}"
-                                    )
-                                    rows_skipped += len(debit_dicts)
-                    else:
-                        self.logger.warning(
-                            f"Debit range '{debit_range_name}' is empty or not found"
-                        )
+                    total_credits = self._process_transaction_range(
+                        google_sheets_client,
+                        spreadsheet_id,
+                        credit_ranges,
+                        service_periods_map,
+                        created_users,
+                        parse_credit_row,
+                        create_credit_transactions,
+                        transaction_type="credit",
+                        extra_args={"default_account_name": "Взносы"},
+                    )
 
             except Exception as e:
-                self.logger.error(f"Failed to create debits: {e}")
-                # Don't fail entire seeding if debits fail - just log and continue
-                total_debits = 0
+                self.logger.error(f"Failed to process transactions: {e}")
+                # Don't fail entire seeding if transactions fail - just log and continue
 
-            # Step 7b: Insert credit transactions
-            total_credits = 0
+            # Step 9: Process electricity readings
+            total_electricity_readings = 0
+            total_electricity_bills = 0
             try:
-                config = SeedingConfig.load()
-                credit_range_names = config.get_credit_range_names()
+                from src.services.electricity_seeding import (
+                    create_electricity_readings_and_bills,
+                    parse_date,
+                    parse_electricity_row,
+                )
 
-                if credit_range_names:
-                    self.logger.info(f"Processing {len(credit_range_names)} credit range(s)")
+                elec_range_names = config.get_electricity_range_names()
 
-                    for credit_range_name in credit_range_names:
-                        self.logger.info(f"Fetching credits from range '{credit_range_name}'...")
+                if elec_range_names:
+                    self.logger.info(
+                        f"Processing {len(elec_range_names)} electricity reading range(s)"
+                    )
 
-                        # Fetch credit data using named range
-                        credit_sheet_data = google_sheets_client.fetch_sheet_data(
-                            spreadsheet_id, range_spec=credit_range_name
+                    for elec_range_name in elec_range_names:
+                        self.logger.info(
+                            f"Fetching electricity readings from range '{elec_range_name}'..."
                         )
 
-                        if credit_sheet_data:
-                            # Named ranges: header at [0], data from [1:]
-                            if len(credit_sheet_data) < 2:
+                        try:
+                            sheet_data = google_sheets_client.fetch_sheet_data(
+                                spreadsheet_id, range_spec=elec_range_name
+                            )
+
+                            if not sheet_data or len(sheet_data) < 2:
                                 self.logger.warning(
-                                    f"Credit range '{credit_range_name}' has insufficient data"
+                                    f"Range '{elec_range_name}' has insufficient data"
                                 )
                                 continue
 
-                            credit_header_row = credit_sheet_data[0]
-                            credit_data_rows = credit_sheet_data[1:]
+                            header_row = sheet_data[0]
+                            data_rows = sheet_data[1:]
 
-                            if credit_data_rows:
-                                # Parse credit rows
-                                credit_dicts: List[Dict] = []
-                                for row_idx, row_values in enumerate(credit_data_rows, start=1):
-                                    try:
-                                        row_dict = sheet_row_to_dict(row_values, credit_header_row)
-                                        credit_dict = parse_credit_row(row_dict)
-                                        if credit_dict:
-                                            credit_dicts.append(credit_dict)
-                                    except Exception as e:
-                                        self.logger.debug(f"Credit row {row_idx}: Skipped ({e})")
-                                        rows_skipped += 1
+                            # Parse rows
+                            reading_dicts: List[Dict] = []
+                            for row_idx, row_values in enumerate(data_rows, start=1):
+                                try:
+                                    row_dict = sheet_row_to_dict(row_values, header_row)
+                                    parsed = parse_electricity_row(row_dict, config)
+                                    if parsed:
+                                        reading_dicts.append(parsed)
+                                except Exception as e:
+                                    self.logger.debug(f"Electricity row {row_idx}: Skipped ({e})")
+                                    rows_skipped += 1
 
-                                self.logger.info(
-                                    f"Parsed {len(credit_dicts)} credit records from '{credit_range_name}'"
-                                )
-
-                                # Get service period info for this range
-                                if credit_dicts:
-                                    try:
-                                        credit_dicts, period_info = (
-                                            parse_credit_range_with_service_period(
-                                                credit_dicts, credit_range_name, config
-                                            )
-                                        )
-
-                                        # Get or create service period from info
-                                        service_period = get_or_create_service_period(
-                                            self.session,
-                                            period_info["name"],
-                                            period_info["start_date"],
-                                            period_info["end_date"],
-                                        )
-
-                                        # Create transactions using new service
-                                        range_credits = create_credit_transactions(
-                                            self.session,
-                                            credit_dicts,
-                                            user_map=created_users,
-                                            period=service_period,
-                                            default_account_name="Взносы",
-                                        )
-                                        total_credits += range_credits
-                                    except Exception as e:
-                                        self.logger.error(
-                                            f"Failed to create credit transactions from '{credit_range_name}': {e}"
-                                        )
-                                        rows_skipped += len(credit_dicts)
-                        else:
                             self.logger.info(
-                                f"Credit range '{credit_range_name}' is empty or not found"
+                                f"Parsed {len(reading_dicts)} electricity readings from '{elec_range_name}'"
                             )
+
+                            # Get service period for this range
+                            if reading_dicts and elec_range_name in service_periods_map:
+                                try:
+                                    period_info = service_periods_map[elec_range_name]
+                                    period_start_date = parse_date(period_info.get("start_date"))
+                                    period_end_date = parse_date(period_info.get("end_date"))
+
+                                    # Get service period object
+                                    service_period = get_or_create_service_period(
+                                        self.session,
+                                        period_info.get("name"),
+                                        period_info.get("start_date"),
+                                        period_info.get("end_date"),
+                                    )
+
+                                    # Create readings and bills
+                                    range_readings, range_bills = (
+                                        create_electricity_readings_and_bills(
+                                            self.session,
+                                            reading_dicts,
+                                            user_map=created_users,
+                                            service_period_id=service_period.id,
+                                            period_start_date=period_start_date,
+                                            period_end_date=period_end_date,
+                                        )
+                                    )
+
+                                    total_electricity_readings += range_readings
+                                    total_electricity_bills += range_bills
+
+                                except Exception as e:
+                                    self.logger.error(
+                                        f"Failed to create readings/bills from '{elec_range_name}': {e}"
+                                    )
+
+                        except Exception as e:
+                            self.logger.error(f"Failed to process range '{elec_range_name}': {e}")
                 else:
-                    self.logger.info("No credit ranges configured, skipping credit seeding")
+                    self.logger.info("No electricity reading ranges configured")
 
             except Exception as e:
-                self.logger.error(f"Failed to create credits: {e}")
-                # Don't fail entire seeding if credits fail - just log and continue
-                total_credits = 0
+                self.logger.error(f"Failed to process electricity readings: {e}")
 
-            # Step 8: Commit transaction
+            # Step 10: Commit transaction
             try:
                 self.session.commit()
                 self.logger.info("✓ Seed committed successfully")
@@ -433,6 +536,8 @@ class SeededService:
                     properties_created=total_properties,
                     debits_created=total_debits,
                     credits_created=total_credits,
+                    electricity_readings_created=total_electricity_readings,
+                    electricity_bills_created=total_electricity_bills,
                     rows_skipped=rows_skipped,
                 )
             except Exception as e:
@@ -452,6 +557,8 @@ class SeededService:
                 properties_created=0,
                 debits_created=0,
                 credits_created=0,
+                electricity_readings_created=0,
+                electricity_bills_created=0,
                 rows_skipped=0,
                 error_message=str(e),
             )

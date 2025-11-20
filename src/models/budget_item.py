@@ -4,7 +4,7 @@ from decimal import Decimal
 from enum import Enum
 
 from sqlalchemy import Enum as SQLEnum
-from sqlalchemy import ForeignKey, Numeric
+from sqlalchemy import Numeric
 from sqlalchemy.orm import Mapped, mapped_column
 
 from src.models import Base, BaseModel
@@ -27,14 +27,6 @@ class BudgetItem(Base, BaseModel):
 
     __tablename__ = "budget_items"
 
-    # Foreign keys
-    service_period_id: Mapped[int] = mapped_column(
-        ForeignKey("service_periods.id"),
-        nullable=False,
-        index=True,
-        comment="Associated service/billing period",
-    )
-
     # Budget details
     expense_type: Mapped[str] = mapped_column(
         nullable=False,
@@ -54,7 +46,7 @@ class BudgetItem(Base, BaseModel):
 
     def __repr__(self) -> str:
         return (
-            f"<BudgetItem(id={self.id}, period_id={self.service_period_id}, "
+            f"<BudgetItem(id={self.id}, "
             f"type={self.expense_type}, strategy={self.allocation_strategy}, budget={self.year_budget})>"
         )
 

@@ -69,14 +69,14 @@ def get_or_create_service_period(
 
 
 def get_or_create_budget_item(
-    session: Session, budget_item_name: str, service_period: ServicePeriod
+    session: Session, budget_item_name: str, service_period: ServicePeriod = None
 ) -> BudgetItem | None:
     """Get existing budget item or create new one.
 
     Args:
         session: SQLAlchemy session
         budget_item_name: Budget item name (expense type)
-        service_period: ServicePeriod to link budget item to
+        service_period: ServicePeriod (not used, kept for backwards compatibility)
 
     Returns:
         BudgetItem instance or None if name is empty
@@ -87,14 +87,9 @@ def get_or_create_budget_item(
     logger = logging.getLogger("sosenki.seeding.transactions")
 
     try:
-        # Query for existing budget item
+        # Query for existing budget item by expense_type only
         budget_item = (
-            session.query(BudgetItem)
-            .filter(
-                BudgetItem.service_period_id == service_period.id,
-                BudgetItem.expense_type == budget_item_name,
-            )
-            .first()
+            session.query(BudgetItem).filter(BudgetItem.expense_type == budget_item_name).first()
         )
 
         if budget_item:
@@ -103,7 +98,6 @@ def get_or_create_budget_item(
 
         # Create new budget item
         budget_item = BudgetItem(
-            service_period_id=service_period.id,
             expense_type=budget_item_name,
             allocation_strategy=AllocationStrategy.NONE,
             year_budget=0,  # Will be calculated/updated separately
