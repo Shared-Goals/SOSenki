@@ -133,14 +133,11 @@ class SeedingConfig:
         Returns:
             List of range name strings to process sequentially
         """
-        range_names = self._config["schemas"]["debit_transactions"]["range_name"]
-        # Handle both single string and array of strings
-        if isinstance(range_names, list):
-            return range_names
-        elif isinstance(range_names, str):
-            return [range_names]
-        else:
-            return []
+        # Get range names from service_periods mapping (new compact format)
+        debit_range_to_period_ref = self._config["schemas"]["debit_transactions"].get(
+            "service_periods", {}
+        )
+        return list(debit_range_to_period_ref.keys())
 
     def get_debit_account_column(self) -> str:
         """Get the column name for account names in debit rows.
@@ -167,14 +164,11 @@ class SeedingConfig:
         Returns:
             List of range name strings to process sequentially
         """
-        range_names = self._config["schemas"]["credit_transactions"]["range_name"]
-        # Handle both single string and array of strings
-        if isinstance(range_names, list):
-            return range_names
-        elif isinstance(range_names, str):
-            return [range_names]
-        else:
-            return []
+        # Get range names from service_periods mapping (new compact format)
+        credit_range_to_period_ref = self._config["schemas"]["credit_transactions"].get(
+            "service_periods", {}
+        )
+        return list(credit_range_to_period_ref.keys())
 
     def get_credit_defaults(self) -> Dict:
         """Get default values and transformations for credits.
@@ -211,7 +205,7 @@ class SeedingConfig:
         """Get service period mappings for all transaction ranges.
 
         Resolves period references to full period definitions from service_periods block.
-        Service periods are shared across both debit and credit transactions.
+        Service periods are shared across debits, credits, and electricity readings.
 
         Returns:
             Dict mapping range names to period info (name, start_date, end_date)
@@ -227,7 +221,9 @@ class SeedingConfig:
         )
         for range_name, period_ref in debit_range_to_period_ref.items():
             if period_ref in service_periods_defs:
-                result[range_name] = service_periods_defs[period_ref]
+                period_data = service_periods_defs[period_ref].copy()
+                period_data["name"] = period_ref  # Add period name reference
+                result[range_name] = period_data
 
         # Process credit (expense) service period mappings
         credit_range_to_period_ref = self._config["schemas"]["credit_transactions"].get(
@@ -235,7 +231,19 @@ class SeedingConfig:
         )
         for range_name, period_ref in credit_range_to_period_ref.items():
             if period_ref in service_periods_defs:
-                result[range_name] = service_periods_defs[period_ref]
+                period_data = service_periods_defs[period_ref].copy()
+                period_data["name"] = period_ref  # Add period name reference
+                result[range_name] = period_data
+
+        # Process electricity reading service period mappings
+        elec_range_to_period_ref = self._config["schemas"]["electricity_readings"].get(
+            "service_periods", {}
+        )
+        for range_name, period_ref in elec_range_to_period_ref.items():
+            if period_ref in service_periods_defs:
+                period_data = service_periods_defs[period_ref].copy()
+                period_data["name"] = period_ref  # Add period name reference
+                result[range_name] = period_data
 
         return result
 
@@ -249,3 +257,22 @@ class SeedingConfig:
         accounts = additional.get("accounts", {})
         defaults = accounts.get("defaults", {})
         return defaults.get("account_name", "Взносы")
+
+    def get_electricity_parsing_rules(self) -> Dict[str, str]:
+        """Get column names for electricity reading parsing.
+
+        Returns:
+            Dict with column mappings for electricity data
+        """
+        return self._config["schemas"]["electricity_readings"]["fields"]["parsing"]
+
+    def get_electricity_range_names(self) -> list:
+        """Get the range names for electricity readings.
+
+        Returns:
+            List of range name strings to process sequentially
+        """
+        elec_range_to_period_ref = self._config["schemas"]["electricity_readings"].get(
+            "service_periods", {}
+        )
+        return list(elec_range_to_period_ref.keys())

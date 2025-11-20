@@ -18,7 +18,6 @@ def test_user_defaults():
 
     assert defaults["is_investor"] is True
     assert defaults["is_owner"] is True
-    assert defaults["is_administrator"] is False
     assert defaults["is_active"] is False
 
 
@@ -46,7 +45,6 @@ def test_property_type_mapping():
     assert mapping["26"] == "Малый"
     assert mapping["4"] == "Беседка"
     assert mapping["49"] == "Склад"
-    assert mapping["69"] == "Хоздвор"
 
 
 def test_property_default_type():

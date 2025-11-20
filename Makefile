@@ -1,8 +1,7 @@
-## TODO User management from bot - list, change - active/inactive, role, 
-# TODO Service periods
-# TODO Electricity readings
+# TODO Bills on first page
 # TODO Debt on first page
 # TODO Balance for accounts
+## TODO User management from bot - list, change - active/inactive, role, 
 
 # TODO Invest part
 # TODO Production from main and Dev from dev

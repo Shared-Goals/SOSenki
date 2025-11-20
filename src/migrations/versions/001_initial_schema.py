@@ -270,7 +270,6 @@ def upgrade() -> None:
     op.create_table(
         "budget_items",
         sa.Column("id", sa.Integer(), nullable=False),
-        sa.Column("service_period_id", sa.Integer(), nullable=False),
         sa.Column("expense_type", sa.String(length=255), nullable=False),
         sa.Column(
             "allocation_strategy",
@@ -291,10 +290,108 @@ def upgrade() -> None:
             nullable=False,
             server_default=sa.func.current_timestamp(),
         ),
-        sa.ForeignKeyConstraint(["service_period_id"], ["service_periods.id"]),
         sa.PrimaryKeyConstraint("id"),
-        sa.Index("idx_budget_period_type", "service_period_id", "expense_type"),
-        sa.Index("idx_budget_period_strategy", "service_period_id", "allocation_strategy"),
+    )
+
+    # Create electricity_readings table (polymorphic: user or property readings)
+    op.create_table(
+        "electricity_readings",
+        sa.Column("id", sa.Integer(), nullable=False),
+        sa.Column(
+            "user_id",
+            sa.Integer(),
+            nullable=True,
+            comment="FK to User for user-level readings (polymorphic with property_id)",
+        ),
+        sa.Column(
+            "property_id",
+            sa.Integer(),
+            nullable=True,
+            comment="FK to Property for property-level readings (polymorphic with user_id)",
+        ),
+        sa.Column(
+            "reading_value",
+            sa.Numeric(precision=10, scale=2),
+            nullable=False,
+            comment="Meter reading value",
+        ),
+        sa.Column(
+            "reading_date",
+            sa.Date(),
+            nullable=False,
+            comment="Date of the meter reading",
+        ),
+        sa.Column(
+            "created_at",
+            sa.DateTime(timezone=True),
+            nullable=False,
+            server_default=sa.func.current_timestamp(),
+        ),
+        sa.Column(
+            "updated_at",
+            sa.DateTime(timezone=True),
+            nullable=False,
+            server_default=sa.func.current_timestamp(),
+        ),
+        sa.ForeignKeyConstraint(["user_id"], ["users.id"]),
+        sa.ForeignKeyConstraint(["property_id"], ["properties.id"]),
+        sa.PrimaryKeyConstraint("id"),
+        sa.Index("idx_reading_user_date", "user_id", "reading_date"),
+        sa.Index("idx_reading_property_date", "property_id", "reading_date"),
+    )
+
+    # Create electricity_bills table (polymorphic: user or property bills)
+    op.create_table(
+        "electricity_bills",
+        sa.Column("id", sa.Integer(), nullable=False),
+        sa.Column(
+            "service_period_id",
+            sa.Integer(),
+            nullable=False,
+            comment="FK to ServicePeriod",
+        ),
+        sa.Column(
+            "user_id",
+            sa.Integer(),
+            nullable=True,
+            comment="FK to User for user-level bills (polymorphic with property_id)",
+        ),
+        sa.Column(
+            "property_id",
+            sa.Integer(),
+            nullable=True,
+            comment="FK to Property for property-level bills (polymorphic with user_id)",
+        ),
+        sa.Column(
+            "bill_amount",
+            sa.Numeric(precision=10, scale=2),
+            nullable=False,
+            comment="Bill amount in rubles",
+        ),
+        sa.Column(
+            "comment",
+            sa.String(length=500),
+            nullable=True,
+            comment="Optional comment (e.g., reason if property not found)",
+        ),
+        sa.Column(
+            "created_at",
+            sa.DateTime(timezone=True),
+            nullable=False,
+            server_default=sa.func.current_timestamp(),
+        ),
+        sa.Column(
+            "updated_at",
+            sa.DateTime(timezone=True),
+            nullable=False,
+            server_default=sa.func.current_timestamp(),
+        ),
+        sa.ForeignKeyConstraint(["service_period_id"], ["service_periods.id"]),
+        sa.ForeignKeyConstraint(["user_id"], ["users.id"]),
+        sa.ForeignKeyConstraint(["property_id"], ["properties.id"]),
+        sa.PrimaryKeyConstraint("id"),
+        sa.Index("idx_bill_period_user", "service_period_id", "user_id"),
+        sa.Index("idx_bill_period_property", "service_period_id", "property_id"),
     )
 
 

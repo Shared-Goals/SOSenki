@@ -31,6 +31,8 @@ class BaseModel:
 from src.models.access_request import AccessRequest, RequestStatus  # noqa: E402
 from src.models.account import Account, AccountType  # noqa: E402
 from src.models.budget_item import AllocationStrategy, BudgetItem  # noqa: E402
+from src.models.electricity_bill import ElectricityBill  # noqa: E402
+from src.models.electricity_reading import ElectricityReading  # noqa: E402
 from src.models.property import Property  # noqa: E402
 from src.models.service_period import PeriodStatus, ServicePeriod  # noqa: E402
 from src.models.transaction import Transaction  # noqa: E402
@@ -50,4 +52,6 @@ __all__ = [
     "PeriodStatus",
     "BudgetItem",
     "AllocationStrategy",
+    "ElectricityReading",
+    "ElectricityBill",
 ]
