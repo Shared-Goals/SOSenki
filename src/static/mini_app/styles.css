@@ -490,7 +490,7 @@ body {
     padding: var(--spacing-sm);
     background: var(--color-light-gray);
     border-radius: 8px;
-    border-left: 4px solid var(--color-water);
+    border-left: 4px solid var(--color-sand);
     transition: background-color 0.2s ease;
     gap: var(--spacing-xs);
 }
@@ -765,6 +765,139 @@ body {
     display: flex;
     flex-direction: column;
     gap: var(--spacing-sm);
+}
+
+/* Electricity Bills Section */
+.electricity-section {
+    padding: var(--spacing-md);
+    background: var(--color-white);
+    border-top: 1px solid #E5E5E7;
+    margin-top: var(--spacing-md);
+}
+
+.electricity-section h2 {
+    font-size: 16px;
+    font-weight: 600;
+    margin-bottom: var(--spacing-sm);
+    color: var(--color-text);
+}
+
+#electricity-bills-list {
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-sm);
+}
+
+.electricity-bill-item {
+    display: flex;
+    flex-direction: column;
+    padding: var(--spacing-sm);
+    background: linear-gradient(90deg, rgba(0, 153, 204, 0.05) 0%, rgba(45, 80, 22, 0.02) 100%);
+    border-radius: 8px;
+    border-left: 4px solid var(--color-water);
+    transition: background-color 0.2s ease;
+    gap: var(--spacing-xs);
+}
+
+.electricity-bill-item:active {
+    background-color: #EFEFEF;
+}
+
+.bill-item-period-row {
+    display: flex;
+    width: 100%;
+}
+
+.bill-item-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    width: 100%;
+    flex-wrap: nowrap;
+}
+
+.bill-item-property-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    width: 100%;
+    flex-wrap: nowrap;
+}
+
+.bill-item-left {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    min-width: 0;
+}
+
+.bill-item-period {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--color-text);
+    white-space: nowrap;
+}
+
+.bill-item-property {
+    font-size: 13px;
+    color: var(--color-text-secondary);
+}
+
+.bill-item-amount {
+    font-size: 16px;
+    font-weight: 600;
+    color: var(--color-pine);
+    letter-spacing: -0.3px;
+    font-family: 'SF Mono', 'Menlo', 'Monaco', monospace;
+    white-space: nowrap;
+    margin-left: auto;
+    flex-shrink: 0;
+}
+
+.bill-item-readings {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    width: 100%;
+    font-size: 13px;
+    color: var(--color-text-secondary);
+    gap: var(--spacing-sm);
+}
+
+.readings-range {
+    font-family: 'SF Mono', 'Menlo', 'Monaco', monospace;
+    font-size: 13px;
+    color: #0277bd;
+    font-weight: 500;
+}
+
+.consumption-badge {
+    display: inline-block;
+    background-color: #e0f2f1;
+    color: #0277bd;
+    padding: 3px 8px;
+    border-radius: 4px;
+    font-size: 11px;
+    font-weight: 500;
+    white-space: nowrap;
+}
+
+.electricity-empty {
+    padding: var(--spacing-md);
+    text-align: center;
+    color: var(--color-text-secondary);
+    font-size: 14px;
+}
+
+@media (max-width: 375px) {
+    .bill-item-amount {
+        font-size: 14px;
+    }
+    
+    .bill-item-readings {
+        flex-wrap: wrap;
+    }
 }
 
 

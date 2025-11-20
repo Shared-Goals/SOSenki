@@ -12,6 +12,47 @@ tg.ready();
 // Get app container
 const appContainer = document.getElementById('app');
 
+// ---------------------------------------------------------------------------
+// Unified App Context (authenticated vs represented user)
+// ---------------------------------------------------------------------------
+let __appContext = null; // memoized context
+
+async function getAppContext() {
+    if (__appContext) return __appContext;
+    const initData = getInitData();
+    if (!initData) {
+        console.error('[context] Missing initData');
+        return null;
+    }
+    try {
+        const resp = await fetchWithTmaAuth('/api/mini-app/user-status', initData);
+        if (!resp.ok) {
+            console.error('[context] user-status failed', resp.status, resp.statusText);
+            return null;
+        }
+        const data = await resp.json();
+        const isRepresenting = !!(data.representative_of && data.represented_user_roles);
+        const roles = (isRepresenting ? data.represented_user_roles : data.roles) || [];
+        const sharePercentage = isRepresenting ? data.represented_user_share_percentage : data.share_percentage;
+        const isOwner = sharePercentage !== null;
+        __appContext = {
+            isRepresenting,
+            roles,
+            isOwner,
+            sharePercentage,
+            stakeholderUrl: data.stakeholder_url || null,
+            representativeOf: data.representative_of || null,
+            greetingName: data.authenticated_user_name || data.authenticated_first_name || 'User'
+        };
+        return __appContext;
+    } catch (e) {
+        console.error('[context] Exception', e);
+        return null;
+    }
+}
+
+function refreshAppContext() { __appContext = null; }
+
 /**
  * Extract initData - works on both Desktop and iOS
  * On iOS, Telegram may pass initData in URL hash instead of WebApp property
@@ -251,8 +292,9 @@ function formatAmount(amount) {
  * Load and render transactions from backend
  * @param {string} containerId - ID of container to render transactions into
  * @param {string} scope - Scope for filtering ('personal' or 'all'). Defaults to 'personal'
+ * @param {boolean} isRepresenting - Whether the authenticated user is representing someone else
  */
-async function loadTransactions(containerId = 'transactions-list', scope = 'personal') {
+async function loadTransactions(containerId = 'transactions-list', scope = 'personal', contextOrFlag = false) {
     try {
         const initData = getInitData();
         
@@ -261,8 +303,9 @@ async function loadTransactions(containerId = 'transactions-list', scope = 'pers
             return;
         }
 
-        // Fetch transactions from backend with scope parameter
-        const url = `/api/mini-app/transactions-list?scope=${scope}`;
+        const isRepresenting = (typeof contextOrFlag === 'object') ? !!contextOrFlag.isRepresenting : !!contextOrFlag;
+        // Fetch transactions from backend with scope parameter and representing flag
+        const url = `/api/mini-app/transactions-list?scope=${scope}&representing=${isRepresenting}`;
         const response = await fetchWithTmaAuth(url, initData);
 
         if (!response.ok) {
@@ -349,9 +392,137 @@ function renderTransactionsList(transactions, containerId = 'transactions-list')
 }
 
 /**
+ * Load and render electricity bills from backend
+ * @param {string} containerId - ID of container to render bills into
+ * @param {boolean} isRepresenting - Whether the authenticated user is representing someone else
+ */
+async function loadElectricityBills(containerId = 'electricity-bills-list', contextOrFlag = false) {
+    try {
+        const initData = getInitData();
+        
+        if (!initData) {
+            console.error('[DEBUG loadElectricityBills] No init data available from getInitData()');
+            return;
+        }
+
+        const isRepresenting = (typeof contextOrFlag === 'object') ? !!contextOrFlag.isRepresenting : !!contextOrFlag;
+        // Fetch bills from backend with representing flag
+        const url = `/api/mini-app/electricity-bills?representing=${isRepresenting}`;
+        const response = await fetchWithTmaAuth(url, initData);
+
+        if (!response.ok) {
+            console.error('[DEBUG loadElectricityBills] Failed to load bills:', response.status, response.statusText);
+            const errorText = await response.text();
+            console.error('[DEBUG loadElectricityBills] Error response:', errorText);
+            return;
+        }
+        
+        const data = await response.json();
+        
+        // Render bills
+        if (data.bills && Array.isArray(data.bills)) {
+            renderElectricityBills(data.bills, containerId);
+        }
+        
+    } catch (error) {
+        console.error('[DEBUG loadElectricityBills] Exception:', error);
+        console.error('[DEBUG loadElectricityBills] Error message:', error.message);
+    }
+}
+
+/**
+ * Render electricity bills list into specified container
+ * @param {Array} bills - Array of bill objects
+ * @param {string} containerId - ID of container to render into
+ */
+function renderElectricityBills(bills, containerId = 'electricity-bills-list') {
+    const container = document.getElementById(containerId);
+    
+    if (!container) {
+        console.warn(`Electricity bills container '${containerId}' not found`);
+        return;
+    }
+    
+    container.innerHTML = '';
+    
+    if (!bills || bills.length === 0) {
+        container.innerHTML = '<div class="electricity-empty">No electricity bills yet</div>';
+        return;
+    }
+    
+    bills.forEach(bill => {
+        const billItem = document.createElement('div');
+        billItem.className = 'electricity-bill-item';
+        
+        // Header row: period name and amount
+        const headerDiv = document.createElement('div');
+        headerDiv.className = 'bill-item-header';
+        
+        // Period header row
+        const periodDiv = document.createElement('div');
+        periodDiv.className = 'bill-item-period-row';
+        const periodEl = document.createElement('div');
+        periodEl.className = 'bill-item-period';
+        periodEl.textContent = `${formatDate(bill.period_start_date)} - ${formatDate(bill.period_end_date)}`;
+        periodDiv.appendChild(periodEl);
+        billItem.appendChild(periodDiv);
+        
+        // Property + Amount row
+        const propertyRowDiv = document.createElement('div');
+        propertyRowDiv.className = 'bill-item-property-row';
+        
+        const propertyLeftDiv = document.createElement('div');
+        propertyLeftDiv.className = 'bill-item-left';
+        
+        // Property info (if exists)
+        if (bill.property_name || bill.property_type || bill.comment) {
+            const propertyEl = document.createElement('div');
+            propertyEl.className = 'bill-item-property';
+            
+            if (bill.property_name && bill.property_type) {
+                propertyEl.textContent = `${bill.property_name} (${bill.property_type})`;
+            } else if (bill.property_type) {
+                propertyEl.textContent = bill.property_type;
+            } else if (bill.comment) {
+                propertyEl.textContent = bill.comment;
+            }
+            
+            propertyLeftDiv.appendChild(propertyEl);
+        }
+        
+        const amountEl = document.createElement('div');
+        amountEl.className = 'bill-item-amount';
+        amountEl.textContent = `₽${formatAmount(bill.bill_amount)}`;
+        
+        propertyRowDiv.appendChild(propertyLeftDiv);
+        propertyRowDiv.appendChild(amountEl);
+        billItem.appendChild(propertyRowDiv);
+        
+        // Readings row
+        const readingsDiv = document.createElement('div');
+        readingsDiv.className = 'bill-item-readings';
+        
+        const readingsText = document.createElement('span');
+        readingsText.className = 'readings-range';
+        readingsText.textContent = `${formatAmount(bill.start_reading)} → ${formatAmount(bill.end_reading)}`;
+        
+        const consumptionBadge = document.createElement('span');
+        consumptionBadge.className = 'consumption-badge';
+        consumptionBadge.textContent = `${formatAmount(bill.consumption)} kWh`;
+        
+        readingsDiv.appendChild(readingsText);
+        readingsDiv.appendChild(consumptionBadge);
+        
+        billItem.appendChild(readingsDiv);
+        
+        container.appendChild(billItem);
+    });
+}
+
+/**
  * Load user status from backend and render badges
  */
-async function loadUserStatus() {
+async function loadUserStatus() { // legacy path retained; unified context used in initMiniApp
     try {
         const initData = getInitData();
 
@@ -388,7 +559,7 @@ async function loadUserStatus() {
 
         // Load properties if user is an owner
         if (isOwner) {
-            await loadProperties();
+            await loadProperties(isRepresenting);
         } else {
             // Hide properties section if not an owner
             const container = document.getElementById('properties-container');
@@ -399,6 +570,8 @@ async function loadUserStatus() {
 
         // Render representative info (always call to ensure proper hiding when no data)
         renderRepresentativeInfo(data.representative_of || null);
+        
+        // Datasets now loaded via getAppContext() inside initMiniApp.
 
     } catch (error) {
         console.error('Error loading user status:', error);
@@ -590,10 +763,18 @@ async function initMiniApp() {
             // Render appropriate screen based on registration status
             if (data.isRegistered) {
                 renderWelcomeScreen(data);
-                // Load and display user status badges after welcome screen renders
-                await loadUserStatus();
-                // Load and display personal transactions
-                await loadTransactions('transactions-list', 'personal');
+                // Unified context approach
+                const context = await getAppContext();
+                if (context) {
+                    renderUserStatuses(context.roles);
+                    renderRepresentativeInfo(context.representativeOf);
+                    renderStakeholderLink(context.stakeholderUrl, context.isOwner, context.sharePercentage);
+                    if (context.isOwner) await loadProperties(context);
+                    await loadTransactions('transactions-list', 'personal', context);
+                    await loadElectricityBills('electricity-bills-list', context);
+                } else {
+                    console.error('[init] Failed to establish app context');
+                }
             } else {
                 renderAccessDenied(data);
             }
@@ -757,7 +938,7 @@ function renderProperties(properties) {
 /**
  * Load properties from backend and render list
  */
-async function loadProperties() {
+async function loadProperties(contextOrFlag = false) {
     try {
         const initData = getInitData();
 
@@ -766,8 +947,10 @@ async function loadProperties() {
             return;
         }
 
-        // Fetch properties from backend
-        const response = await fetchWithTmaAuth('/api/mini-app/properties', initData);
+        const isRepresenting = (typeof contextOrFlag === 'object') ? !!contextOrFlag.isRepresenting : !!contextOrFlag;
+        // Fetch properties from backend with representing flag
+        const url = `/api/mini-app/properties?representing=${isRepresenting}`;
+        const response = await fetchWithTmaAuth(url, initData);
 
         if (!response.ok) {
             if (response.status === 403) {
