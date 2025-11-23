@@ -849,12 +849,6 @@ async def get_bills(
                 ):
                     consumption = end_reading - start_reading
 
-                logger.debug(
-                    f"[bills DEBUG] ELECTRICITY bill: user_id={bill.user_id}, "
-                    f"period={service_period.name}, start_reading={start_reading}, "
-                    f"end_reading={end_reading}, consumption={consumption}"
-                )
-
             bill_response = {
                 "period_name": service_period.name,
                 "period_start_date": service_period.start_date.isoformat(),
@@ -874,17 +868,6 @@ async def get_bills(
             f"[bills ENDPOINT] Found {len(bills_response)} bills for "
             f"user={target_user.name} (telegram_id={telegram_id})"
         )
-
-        # Debug: Log first few bills with full details
-        if bills_response:
-            logger.info(f"[bills DEBUG] First bill: {bills_response[0]}")
-            for i, bill in enumerate(bills_response[:3]):
-                logger.info(
-                    f"[bills DEBUG] Bill {i}: type={bill['bill_type']}, "
-                    f"start_reading={bill['start_reading']}, "
-                    f"end_reading={bill['end_reading']}, "
-                    f"consumption={bill['consumption']}"
-                )
 
         return {"bills": bills_response}
 

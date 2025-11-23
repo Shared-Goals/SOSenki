@@ -1,13 +1,13 @@
-# TODO Switch to another user for Administrator
-# TODO Test Coverage Report and find dead code
-# TODO Finalize seeding and Report summary
-# TODO Fix wrapped tagline on wide monitors
-# TODO Localization support
-# TODO Invest part
-## TODO User management from bot - MCP server
-# TODO Make git-filter-repo to clean history
-# TODO Production from branch main and Dev from dev
-# TODO Rule part with Job descriptions
+# TODO feat: Switch to another user for Administrator
+# TODO refactor: Test Coverage Report and find dead code
+# TODO feat: Finalize seeding and Report summary
+# TODO fix: Fix wrapped tagline on wide monitors
+# TODO feat: Localization support
+# TODO feat: Invest part
+# TODO feat: User management from bot - MCP server
+# TODO refactor: Make git-filter-repo to clean history
+# TODO feat: Production from branch main and Dev from dev
+# TODO feat: Rule part with Job descriptions
 
 
 # ============================================================================

@@ -3,16 +3,16 @@
 Orchestrates the complete pipeline:
 1. Fetch data from Google Sheets
 2. Parse users and properties
-3. Truncate existing data
-4. Insert new data atomically
-5. Commit or rollback on error
+3. Insert new data atomically
+4. Commit or rollback on error
+
+Note: Database must be pre-cleared via 'make db-reset' before seeding.
 """
 
 import logging
 from dataclasses import dataclass
 from typing import Dict, List
 
-from sqlalchemy import delete
 from sqlalchemy.orm import Session
 
 from seeding.config.seeding_config import SeedingConfig
@@ -33,8 +33,6 @@ from seeding.core.transaction_seeding import (
     create_debit_transactions,
     get_or_create_service_period,
 )
-from src.models.account import Account
-from src.models.property import Property
 from src.models.user import User
 
 
@@ -46,30 +44,33 @@ class SeedResult:
     """Whether seeding completed successfully"""
 
     users_created: int
-    """Number of users created or updated"""
+    """Number of users created"""
 
     properties_created: int
     """Number of properties created"""
 
-    debits_created: int
-    """Number of debits created"""
+    accounts_created: int
+    """Number of accounts created"""
 
-    credits_created: int = 0
-    """Number of credits (from credit transactions) created"""
+    transactions_created: int
+    """Number of transactions created"""
 
-    electricity_readings_created: int = 0
+    service_periods_created: int
+    """Number of service periods created"""
+
+    electricity_readings_created: int
     """Number of electricity readings created"""
 
-    electricity_bills_created: int = 0
-    """Number of electricity bills created"""
+    bills_created: int
+    """Number of bills created (all types: electricity, shared, conservation, main)"""
 
-    shared_electricity_bills_created: int = 0
-    """Number of shared electricity bills created"""
+    access_requests_created: int
+    """Number of access requests created"""
 
-    bills_created: int = 0
-    """Number of regular bills (conservation, main, etc.) created"""
+    budget_items_created: int
+    """Number of budget items created"""
 
-    rows_skipped: int = 0
+    rows_skipped: int
     """Number of rows skipped due to validation errors"""
 
     error_message: str | None = None
@@ -82,16 +83,40 @@ class SeedResult:
                 f"✓ Seed successful\n"
                 f"  Users: {self.users_created}\n"
                 f"  Properties: {self.properties_created}\n"
-                f"  Debits: {self.debits_created}\n"
-                f"  Credits: {self.credits_created}\n"
+                f"  Accounts: {self.accounts_created}\n"
+                f"  Transactions: {self.transactions_created}\n"
+                f"  Service Periods: {self.service_periods_created}\n"
                 f"  Electricity readings: {self.electricity_readings_created}\n"
-                f"  Electricity bills: {self.electricity_bills_created}\n"
-                f"  Shared electricity bills: {self.shared_electricity_bills_created}\n"
-                f"  Bills (conservation/main): {self.bills_created}\n"
-                f"  Skipped: {self.rows_skipped}"
+                f"  Bills: {self.bills_created}\n"
+                f"  Access requests: {self.access_requests_created}\n"
+                f"  Budget items: {self.budget_items_created}\n"
+                f"  Seedings failed: {self.rows_skipped}"
             )
         else:
             return f"✗ Seed failed: {self.error_message}"
+
+    def get_summary_report(self) -> str:
+        """Generate a straightforward summary report of seeded tables."""
+        if not self.success:
+            return f"✗ Seeding failed: {self.error_message}"
+
+        lines = [
+            "SEEDING SUMMARY REPORT",
+            "-" * 50,
+            f"Users: {self.users_created}",
+            f"Properties: {self.properties_created}",
+            f"Accounts: {self.accounts_created}",
+            f"Transactions: {self.transactions_created}",
+            f"Service Periods: {self.service_periods_created}",
+            f"Electricity Readings: {self.electricity_readings_created}",
+            f"Bills: {self.bills_created}",
+            f"Access Requests: {self.access_requests_created}",
+            f"Budget Items: {self.budget_items_created}",
+            "-" * 50,
+            f"Seedings failed: {self.rows_skipped}",
+        ]
+
+        return "\n".join(lines)
 
 
 class SeededService:
@@ -226,9 +251,10 @@ class SeededService:
         1. Fetch data from Google Sheets (using named ranges from config)
         2. Parse header row to get column names
         3. Parse each data row into users and properties
-        4. Truncate existing users and properties tables
-        5. Insert all new records atomically
-        6. Commit on success, rollback on error
+        4. Insert all records atomically
+        5. Commit on success, rollback on error
+
+        Note: Database must be pre-cleared via 'make db-reset' before seeding.
 
         Args:
             google_sheets_client: GoogleSheetsClient instance
@@ -238,7 +264,7 @@ class SeededService:
             SeedResult with counts and status
 
         Transaction Semantics:
-        - All operations (truncate + insert) happen in single transaction
+        - All insert operations happen in single transaction
         - Either all-or-nothing: complete success or complete rollback
         - If error occurs during insert, no partial data remains
         """
@@ -312,18 +338,7 @@ class SeededService:
                     else:
                         self.logger.info(f"User already exists (from sheet): {user_name}, skipping")
 
-            # Step 4: Truncate existing data (atomic with inserts)
-            try:
-                self.logger.info("Truncating existing data...")
-                # Delete in correct order to respect foreign keys
-                self.session.execute(delete(Account))
-                self.session.execute(delete(Property))
-                self.session.execute(delete(User))
-                self.logger.info("Tables truncated")
-            except Exception as e:
-                raise TransactionError(f"Failed to truncate tables: {e}") from e
-
-            # Step 5: Insert users
+            # Step 4: Insert users
             try:
                 self.logger.info(f"Creating {len(users_dict)} users...")
                 created_users: Dict[str, User] = {}
@@ -336,7 +351,7 @@ class SeededService:
             except Exception as e:
                 raise TransactionError(f"Failed to create users: {e}") from e
 
-            # Step 6: Insert properties
+            # Step 5: Insert properties
             try:
                 self.logger.info("Creating properties...")
                 total_properties = 0
@@ -363,10 +378,12 @@ class SeededService:
             except Exception as e:
                 raise TransactionError(f"Failed to create properties: {e}") from e
 
-            # Step 7: Pre-create all service periods from config
+            # Step 6: Pre-create all service periods from config
             # This ensures all periods exist even if no data is processed for them
+            service_periods_count = 0
             try:
                 service_periods_map = config.get_service_periods()
+                service_periods_count = len(service_periods_map)
 
                 for _, period_info in service_periods_map.items():
                     get_or_create_service_period(
@@ -376,11 +393,11 @@ class SeededService:
                         period_info.get("end_date"),
                     )
 
-                self.logger.info(f"✓ Pre-created {len(service_periods_map)} service periods")
+                self.logger.info(f"✓ Pre-created {service_periods_count} service periods")
             except Exception as e:
                 raise TransactionError(f"Failed to create service periods: {e}") from e
 
-            # Step 8: Process transactions (debits and credits) from seeding config
+            # Step 7: Process transactions (debits and credits) from seeding config
             # Uses unified service periods from config
             total_debits = 0
             total_credits = 0
@@ -721,20 +738,44 @@ class SeededService:
             except Exception as e:
                 self.logger.error(f"Failed to process bills: {e}")
 
-            # Step 12: Commit transaction
+            # Step 12: Commit transaction and get actual counts
             try:
                 self.session.commit()
                 self.logger.info("✓ Seed committed successfully")
+
+                # Query actual counts from database
+                from sqlalchemy import func
+
+                from src.models.access_request import AccessRequest
+                from src.models.account import Account
+                from src.models.budget_item import BudgetItem
+
+                accounts_count = self.session.query(func.count(Account.id)).scalar() or 0
+                access_requests_count = (
+                    self.session.query(func.count(AccessRequest.id)).scalar() or 0
+                )
+                budget_items_count = self.session.query(func.count(BudgetItem.id)).scalar() or 0
+
+                # Query service periods from database for accurate count
+                from src.models.service_period import ServicePeriod
+
+                service_periods_db_count = (
+                    self.session.query(func.count(ServicePeriod.id)).scalar() or 0
+                )
+
                 return SeedResult(
                     success=True,
                     users_created=len(created_users),
                     properties_created=total_properties,
-                    debits_created=total_debits,
-                    credits_created=total_credits,
+                    accounts_created=accounts_count,
+                    transactions_created=total_debits + total_credits,
+                    service_periods_created=service_periods_db_count,
                     electricity_readings_created=total_electricity_readings,
-                    electricity_bills_created=total_electricity_bills,
-                    shared_electricity_bills_created=total_shared_electricity_bills,
-                    bills_created=total_bills,
+                    bills_created=total_electricity_bills
+                    + total_shared_electricity_bills
+                    + total_bills,
+                    access_requests_created=access_requests_count,
+                    budget_items_created=budget_items_count,
                     rows_skipped=rows_skipped,
                 )
             except Exception as e:
@@ -752,10 +793,13 @@ class SeededService:
                 success=False,
                 users_created=0,
                 properties_created=0,
-                debits_created=0,
-                credits_created=0,
+                accounts_created=0,
+                transactions_created=0,
+                service_periods_created=0,
                 electricity_readings_created=0,
-                electricity_bills_created=0,
+                bills_created=0,
+                access_requests_created=0,
+                budget_items_created=0,
                 rows_skipped=0,
                 error_message=str(e),
             )

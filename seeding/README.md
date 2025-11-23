@@ -174,28 +174,31 @@ The seeding process executes in this order:
 4. **Create Users** - Insert users into database
 5. **Create Properties** - Insert properties linked to users
 6. **Create Service Periods** - Insert billing cycle definitions
-7. **Create Transactions** - Import debits and credits
-8. **Create Readings** - Import electricity readings
-9. **Create Bills** - Import shared and regular bills
+7. **Create Transactions** - Import all transaction types (debits and credits combined)
+8. **Create Electricity Readings** - Import meter readings
+9. **Create Bills** - Import all bill types (electricity, shared electricity, conservation, main)
 10. **Commit** - All-or-nothing atomic transaction
 
 If any step fails, the entire transaction is rolled back.
 
 ## Record Counts
 
-After seeding completes successfully, a summary shows record counts:
+After seeding completes successfully, a summary report shows record counts for all tables:
 
 ```
-✓ Seed successful
-  Users: 42
-  Properties: 128
-  Debits: 256
-  Credits: 89
-  Electricity readings: 84
-  Electricity bills: 21
-  Shared electricity bills: 15
-  Bills (conservation/main): 178
-  Skipped: 3
+SEEDING SUMMARY REPORT
+--------------------------------------------------
+Users: 16
+Properties: 72
+Accounts: 27
+Transactions: 66
+Service Periods: 3
+Electricity Readings: 77
+Bills: 142
+Access Requests: 0
+Budget Items: 3
+--------------------------------------------------
+Seedings failed: 0
 ```
 
 ## Troubleshooting
