@@ -73,7 +73,6 @@ function getInitData() {
             const decodedData = decodeURIComponent(encodedData);
             return decodedData;
         } catch (e) {
-            console.error('[DEBUG] getInitData: Failed to decode hash data:', e.message);
             return null;
         }
     }
@@ -205,10 +204,8 @@ function renderError(message, error = null) {
     // Store debug info globally for copy function
     window.currentDebugInfo = JSON.stringify(debugInfo, null, 2);
     
-    // Log to console with breakdown
+    // Log to console
     console.error('Mini App Error:', debugInfo);
-    console.error('[DEBUG] Telegram WebApp state:', debugInfo.telegramWebApp);
-    console.error('[DEBUG] Network state:', debugInfo.network);
     
     // Clear and render
     appContainer.innerHTML = '';
@@ -284,7 +281,7 @@ function formatDate(dateString) {
 function formatAmount(amount) {
     return new Intl.NumberFormat('ru-RU', {
         minimumFractionDigits: 0,
-        maximumFractionDigits: 2
+        maximumFractionDigits: 0
     }).format(amount);
 }
 
@@ -299,7 +296,6 @@ async function loadTransactions(containerId = 'transactions-list', scope = 'pers
         const initData = getInitData();
         
         if (!initData) {
-            console.error('[DEBUG loadTransactions] No init data available from getInitData()');
             return;
         }
 
@@ -309,9 +305,6 @@ async function loadTransactions(containerId = 'transactions-list', scope = 'pers
         const response = await fetchWithTmaAuth(url, initData);
 
         if (!response.ok) {
-            console.error('[DEBUG loadTransactions] Failed to load transactions:', response.status, response.statusText);
-            const errorText = await response.text();
-            console.error('[DEBUG loadTransactions] Error response:', errorText);
             return;
         }
         
@@ -323,8 +316,7 @@ async function loadTransactions(containerId = 'transactions-list', scope = 'pers
         }
         
     } catch (error) {
-        console.error('[DEBUG loadTransactions] Exception:', error);
-        console.error('[DEBUG loadTransactions] Error message:', error.message);
+        // Error silently handled
     }
 }
 
@@ -392,7 +384,7 @@ function renderTransactionsList(transactions, containerId = 'transactions-list')
 }
 
 /**
- * Load and render electricity bills from backend
+ * Load and render bills from backend
  * @param {string} containerId - ID of container to render bills into
  * @param {boolean} isRepresenting - Whether the authenticated user is representing someone else
  */
@@ -401,7 +393,6 @@ async function loadBills(containerId = 'bills-list', contextOrFlag = false) {
         const initData = getInitData();
         
         if (!initData) {
-            console.error('[DEBUG loadBills] No init data available from getInitData()');
             return;
         }
 
@@ -411,26 +402,10 @@ async function loadBills(containerId = 'bills-list', contextOrFlag = false) {
         const response = await fetchWithTmaAuth(url, initData);
 
         if (!response.ok) {
-            console.error('[DEBUG loadBills] Failed to load bills:', response.status, response.statusText);
-            const errorText = await response.text();
-            console.error('[DEBUG loadBills] Error response:', errorText);
             return;
         }
         
         const data = await response.json();
-        
-        // Debug: Log the response data
-        console.log('[bills DEBUG] Full response:', data);
-        if (data.bills && data.bills.length > 0) {
-            console.log('[bills DEBUG] First bill:', data.bills[0]);
-            for (let i = 0; i < Math.min(3, data.bills.length); i++) {
-                const bill = data.bills[i];
-                console.log(
-                    `[bills DEBUG] Bill ${i}: type=${bill.bill_type}, ` +
-                    `start_reading=${bill.start_reading}, end_reading=${bill.end_reading}, consumption=${bill.consumption}`
-                );
-            }
-        }
         
         // Render bills
         if (data.bills && Array.isArray(data.bills)) {
@@ -438,8 +413,7 @@ async function loadBills(containerId = 'bills-list', contextOrFlag = false) {
         }
         
     } catch (error) {
-        console.error('[DEBUG loadBills] Exception:', error);
-        console.error('[DEBUG loadBills] Error message:', error.message);
+        // Error silently handled
     }
 }
 
@@ -466,12 +440,6 @@ function renderBills(bills, containerId = 'bills-list') {
     bills.forEach(bill => {
         const billItem = document.createElement('div');
         billItem.className = 'bill-item';
-        
-        // Debug: Log bill rendering
-        console.log(
-            `[renderBills DEBUG] Rendering bill: type=${bill.bill_type}, ` +
-            `start_reading=${bill.start_reading}, end_reading=${bill.end_reading}, consumption=${bill.consumption}`
-        );
         
         // Line 1: Period dates (from - to)
         const periodDiv = document.createElement('div');
@@ -575,7 +543,6 @@ async function loadUserStatus() { // legacy path retained; unified context used 
         const initData = getInitData();
 
         if (!initData) {
-            console.error('[DEBUG loadUserStatus] No init data available from getInitData()');
             return;
         }
 
@@ -583,9 +550,6 @@ async function loadUserStatus() { // legacy path retained; unified context used 
         const response = await fetchWithTmaAuth('/api/mini-app/user-status', initData);
         
         if (!response.ok) {
-            console.error('[DEBUG loadUserStatus] Failed to load user status:', response.status, response.statusText);
-            const errorText = await response.text();
-            console.error('[DEBUG loadUserStatus] Error response:', errorText);
             return;
         }
 
@@ -789,7 +753,6 @@ async function loadBalance(contextOrFlag = false) {
         const initData = getInitData();
         
         if (!initData) {
-            console.error('[DEBUG loadBalance] No init data available from getInitData()');
             return;
         }
 
@@ -799,7 +762,6 @@ async function loadBalance(contextOrFlag = false) {
         const response = await fetchWithTmaAuth(url, initData);
 
         if (!response.ok) {
-            console.error('[DEBUG loadBalance] Failed to load balance:', response.status, response.statusText);
             return;
         }
         
@@ -810,7 +772,7 @@ async function loadBalance(contextOrFlag = false) {
         }
         
     } catch (error) {
-        console.error('[DEBUG loadBalance] Exception:', error);
+        // Error silently handled
     }
 }
 
@@ -843,26 +805,20 @@ function renderBalance(balance) {
  * Navigate to balances page
  */
 function navigateToBalances(event) {
-    console.log('[DEBUG navigateToBalances] STARTED');
     event.preventDefault();
     
     // Show balances page
     const template = document.getElementById('balances-template');
     if (!template) {
-        console.error('[DEBUG navigateToBalances] balances-template not found');
         return;
     }
-    console.log('[DEBUG navigateToBalances] Template found, cloning content');
     
     const content = template.content.cloneNode(true);
     appContainer.innerHTML = '';
     appContainer.appendChild(content);
-    console.log('[DEBUG navigateToBalances] Template rendered in DOM');
     
     // Load all balances
-    console.log('[DEBUG navigateToBalances] Calling loadBalances');
     loadBalances('balances-list');
-    console.log('[DEBUG navigateToBalances] COMPLETED');
 }
 
 /**
@@ -870,28 +826,20 @@ function navigateToBalances(event) {
  * @param {string} containerId - ID of container to render balances into
  */
 function loadBalances(containerId = 'balances-list') {
-    console.log('[DEBUG loadBalances] STARTED with containerId:', containerId);
     try {
         const initData = getInitData();
-        console.log('[DEBUG loadBalances] Got init data:', initData ? 'YES' : 'NO');
         
         if (!initData) {
-            console.error('[DEBUG loadBalances] No init data available from getInitData()');
             return;
         }
 
         // Fetch balances from backend (all users, info available to any owner)
         const url = `/api/mini-app/balances`;
-        console.log('[DEBUG loadBalances] Fetching from URL:', url);
         
         fetchWithTmaAuth(url, initData)
             .then(response => {
-                console.log('[DEBUG loadBalances] Response status:', response.status);
-                
                 if (!response.ok) {
-                    console.error('[DEBUG loadBalances] Failed to load balances:', response.status, response.statusText);
                     return response.text().then(errorText => {
-                        console.error('[DEBUG loadBalances] Error response body:', errorText);
                         throw new Error(`HTTP ${response.status}`);
                     });
                 }
@@ -899,23 +847,14 @@ function loadBalances(containerId = 'balances-list') {
                 return response.json();
             })
             .then(data => {
-                console.log('[DEBUG loadBalances] Got data:', data);
-                console.log('[DEBUG loadBalances] Balances count:', data.balances ? data.balances.length : 0);
-                if (data.balances && data.balances.length > 0) {
-                    console.log('[DEBUG loadBalances] First balance:', data.balances[0]);
-                }
-                console.log('[DEBUG loadBalances] Calling renderBalancesPage with', data.balances ? data.balances.length : 0, 'items');
                 renderBalancesPage(data.balances || [], containerId);
-                console.log('[DEBUG loadBalances] COMPLETED');
             })
             .catch(error => {
-                console.error('[DEBUG loadBalances] Exception:', error);
-                console.error('[DEBUG loadBalances] Error message:', error.message);
-                console.error('[DEBUG loadBalances] Stack:', error.stack);
+                // Error silently handled
             });
         
     } catch (error) {
-        console.error('[DEBUG loadBalances] Sync error:', error);
+        // Error silently handled
     }
 }
 
@@ -925,12 +864,9 @@ function loadBalances(containerId = 'balances-list') {
  * @param {string} containerId - ID of container to render into
  */
 function renderBalancesPage(balances, containerId = 'balances-list') {
-    console.log('[DEBUG renderBalancesPage] STARTED with', balances.length, 'balances, containerId:', containerId);
     const container = document.getElementById(containerId);
-    console.log('[DEBUG renderBalancesPage] Got container:', container ? 'YES' : 'NO');
     
     if (!container) {
-        console.warn('[DEBUG renderBalancesPage] balances-list container not found');
         return;
     }
     
@@ -938,16 +874,13 @@ function renderBalancesPage(balances, containerId = 'balances-list') {
     
     if (!balances || balances.length === 0) {
         container.innerHTML = '<div class="balance-empty">No balances available</div>';
-        console.log('[DEBUG renderBalancesPage] No balances to render');
         return;
     }
     
     // Sort by balance (most negative first - biggest debt first)
     const sorted = [...balances].sort((a, b) => a.balance - b.balance);
-    console.log('[DEBUG renderBalancesPage] Sorted balances:', sorted);
     
     sorted.forEach((item, index) => {
-        console.log(`[DEBUG renderBalancesPage] Rendering balance ${index}:`, item);
         const row = document.createElement('div');
         row.className = 'balance-row';
         
@@ -978,9 +911,7 @@ function renderBalancesPage(balances, containerId = 'balances-list') {
         
         row.appendChild(amountEl);
         container.appendChild(row);
-        console.log(`[DEBUG renderBalancesPage] Appended balance row ${index}`);
     });
-    console.log('[DEBUG renderBalancesPage] COMPLETED - rendered', sorted.length, 'balances');
 }
 
 async function initMiniApp() {
@@ -989,7 +920,6 @@ async function initMiniApp() {
         const initData = getInitData();
         
         if (!initData) {
-            console.error('[DEBUG] initData is missing or empty after getInitData()');
             renderError('Could not verify Telegram authentication. Please open this app from Telegram.');
             return;
         }
@@ -1000,7 +930,6 @@ async function initMiniApp() {
             
             if (!response.ok) {
                 const errorText = await response.text();
-                console.error('[DEBUG] API error response:', errorText);
                 if (response.status === 401) {
                     renderError('Authentication failed. Please restart the app.');
                 } else {
@@ -1026,22 +955,16 @@ async function initMiniApp() {
                     }
                     await loadTransactions('transactions-list', 'personal', context);
                     await loadBills('bills-list', context);
-                } else {
-                    console.error('[init] Failed to establish app context');
                 }
             } else {
                 renderAccessDenied(data);
             }
             
         } catch (fetchError) {
-            console.error('[DEBUG] Fetch error:', fetchError?.message || fetchError);
             throw fetchError; // Re-throw to outer catch
         }
         
     } catch (error) {
-        console.error('[DEBUG] Exception in initMiniApp:', error);
-        console.error('[DEBUG] Error message:', error.message);
-        console.error('[DEBUG] Error stack:', error.stack);
         renderError('Network error. Please check your connection and try again.');
     }
 }
