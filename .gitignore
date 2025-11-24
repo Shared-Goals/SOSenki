@@ -46,6 +46,7 @@ mcp.json
 # Testing
 .pytest_cache/
 .coverage
+coverage.json
 htmlcov/
 .tox/
 

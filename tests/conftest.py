@@ -1,4 +1,11 @@
-"""Pytest configuration for tests - applies migrations automatically."""
+"""Pytest configuration for tests - applies migrations automatically.
+
+Database Strategy for Unit/Integration Tests:
+- Uses: test_sosenki.db (isolated test database)
+- Purpose: Unit and integration tests need fresh isolated database per run
+- Isolation: Each test suite gets clean schema with no production data
+- Note: For seeding/data integrity tests, see seeding/tests/conftest.py which uses sosenki.db
+"""
 
 import os
 import subprocess

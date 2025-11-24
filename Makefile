@@ -1,12 +1,12 @@
-# TODO refactor: Test Coverage Report and find dead code
-# TODO fix: Fix wrapped tagline on wide monitors
 # TODO feat: Localization support
+# TODO feat: Align CSS and add Figma MCP to fix wrapping
+# - https://www.figma.com/community/file/1248595286803212338/telegram-graphics
+# TODO fix: Infinite loading due to Async misuse
 # TODO feat: Invest part
 # TODO feat: User management from bot - MCP server
 # TODO refactor: Make git-filter-repo to clean history
 # TODO feat: Production from branch main and Dev from dev
 # TODO feat: Rule part with Job descriptions
-
 
 # ============================================================================
 # Configuration
@@ -21,7 +21,7 @@ export GOOGLE_SHEET_ID
 export TELEGRAM_BOT_NAME
 export TELEGRAM_MINI_APP_ID
 
-.PHONY: help seed test lint format install serve db-reset
+.PHONY: help seed test lint format install serve db-reset dead-code coverage coverage-seeding sync-design check-i18n clean
 
 help:
 	@echo "SOSenki Development Commands"
@@ -35,6 +35,7 @@ help:
 	@echo "  make format            Format code with ruff and prettier"
 	@echo "  make seed              Seed database from Google Sheets (OFFLINE ONLY)"
 	@echo "  make db-reset          Drop and recreate database (OFFLINE ONLY)"
+	@echo "  make clean             Remove generated artifacts (coverage, cache, logs)"
 	@echo ""
 	@echo "Local Development:"
 	@echo "  make serve             Run bot + mini app with webhook (starts ngrok if needed)"
@@ -53,11 +54,8 @@ install:
 test:
 	uv run pytest tests/ -v
 
-test-contract:
-	uv run pytest tests/contract/test_mini_app_endpoints.py -v
-
-test-mini-app:
-	uv run pytest tests/contract/test_mini_app_endpoints.py tests/integration/test_approval_flow_to_mini_app.py -v
+test-seeding:
+	uv run pytest seeding/tests/ -v
 
 lint:
 	uv run ruff check .
@@ -100,14 +98,48 @@ db-reset:
 	@echo ""
 	@echo "Database reset complete! Ready for seeding with 'make seed'"
 
+# Dead code detection
+dead-code:
+	@echo "Analyzing dead code..."
+	uv run vulture src/ --min-confidence 80
+	uv run python scripts/analyze_dead_code.py
+
+# Coverage report (src/ tests only, excluding seeding)
+coverage:
+	uv run pytest tests/ --cov=src --cov-report=term-missing --cov-report=html -q
+	@echo ""
+	@echo "✓ Coverage report complete"
+	@echo "Open htmlcov/index.html to view detailed coverage report"
+
+
+# Design tokens sync
+sync-design:
+	@echo "Syncing design tokens from Figma..."
+	uv run python scripts/sync_figma_tokens.py
+
+# Localization check
+check-i18n:
+	@echo "Checking translation completeness..."
+	uv run python scripts/check_translations.py
+
 # Local Development with Webhook Mode
 
 # Run bot + mini app in webhook mode with ngrok tunnel
 # Automatically starts ngrok tunnel and loads environment variables (dynamic + static from .env)
 serve:
-	@source ./setup-environment.sh && \
+	@bash scripts/setup-environment.sh && \
 	echo "Starting bot + mini app in webhook mode..." && \
 	echo "Logs: logs/server.log" && \
 	echo "Press Ctrl+C to stop" && \
 	echo "" && \
 	uv run python -m src.main --mode webhook
+
+# Clean generated artifacts
+clean:
+	@echo "Cleaning generated artifacts..."
+	rm -rf .pytest_cache __pycache__
+	find . -type d -name __pycache__ -exec rm -rf {} + 2>/dev/null || true
+	find . -type f -name "*.pyc" -delete
+	rm -rf .coverage coverage.json htmlcov/
+	rm -rf logs/*.log
+	@echo "Clean complete!"
