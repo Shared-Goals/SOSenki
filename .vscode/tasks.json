@@ -7,7 +7,7 @@
 			"command": "bash",
 			"args": [
 				"-c",
-				"source ./setup-environment.sh && echo '✓ Environment setup complete'"
+				"source ./scripts/setup-environment.sh && echo '✓ Environment setup complete'"
 			],
 			"isBackground": false,
 			"presentation": {

@@ -1,3 +1,4 @@
+
 #!/bin/bash
 # Note: When called as `bash ./setup-environment.sh`, this runs in a subshell
 # To use exported variables in parent shell (Makefile), source it instead: source ./setup-environment.sh
