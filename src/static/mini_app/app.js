@@ -1322,7 +1322,8 @@ function renderAccountsPage(accounts, containerId = 'accounts-list') {
         // For others, sort by balance descending (most positive first)
         if (a.account_type === 'owner') {
             // For owners: invert_for_display means we show -balance, so sort by raw balance descending (most positive = most debt when displayed)
-            return b.balance - a.balance;
+            // return b.balance - a.balance;
+            return a.account_name.localeCompare(b.account_name);
         }
         
         // For organization and staff, sort by balance descending

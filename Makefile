@@ -1,4 +1,3 @@
-# TODO refactor: Fix Seed and Display major stakeholders
 # TODO feat: Management from bot - MCP server for query and Endpoints for actions, 
 # TODO feat: Production from branch main and Dev from dev
 # TODO Add Open Mini app button to bot /setmenubutton
