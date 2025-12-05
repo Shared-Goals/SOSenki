@@ -1,12 +1,36 @@
-# TODO feat: Management from bot - MCP server for query and Endpoints for actions
-# TODO New Electricity Service Period 1 Sept 2025 - 1 Jan 2026
-# TODO caddy server for webhook SSL termination
-# TODO feat: Production from branch main and Dev from dev
-# TODO Add Open Mini app button to bot /setmenubutton
+# ============================================================================
+# Roadmap (commit-based milestones)
+# ============================================================================
+# Phase 1: Production Deployment
+# TODO deploy: Add backup/restore targets for SQLite database
+# TODO deploy: Add deploy-check target (tests + env validation)
+# TODO deploy: Create systemd service template (install-service)
+# TODO deploy: Create Caddy reverse proxy config (install-caddy)
+# TODO deploy: Dynamic DNS setup documentation (DuckDNS)
+#
+# Phase 2: MCP Server (src/api/mcp.py)
+# TODO mcp: Create MCP router with tool schema definitions
+# TODO mcp: Implement get_user_balance query tool
+# TODO mcp: Implement list_user_bills query tool
+# TODO mcp: Implement get_period_info query tool
+# TODO mcp: Implement create_service_period admin tool (with auth)
+# TODO mcp: Wire MCP router into webhook.py
+#
+# Phase 3: AI Agent (src/bot/handlers/agent.py)
+# TODO agent: Add ollama dependency and LLM client wrapper
+# TODO agent: Create /ask command handler skeleton
+# TODO agent: Implement tool-calling loop with Ollama
+# TODO agent: Add role-based tool filtering (user vs admin)
+# TODO agent: Add confirmation prompts for write operations
+# TODO agent: Wire agent handler into bot conversation
+#
+# Phase 4: Enhancements
+# TODO feat: Add Open Mini App button to bot /setmenubutton
+# TODO feat: New Electricity Service Period 1 Sept 2025 - 1 Jan 2026
 # TODO refactor: Make git-filter-repo to clean history
-# TODO feat: Invest part
-# TODO feat: Rule part with Job descriptions
-
+# TODO feat: Invest tracking module
+# TODO feat: Rules/Job descriptions module
+#
 # ============================================================================
 # Configuration
 # ============================================================================
