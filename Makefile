@@ -1,34 +1,45 @@
 # ============================================================================
 # Roadmap (commit-based milestones)
 # ============================================================================
-# TODO Спроектировать MCP‑инструменты как строго типизированные команды с минимальной «поверхностью» (отдельные методы для read/write, явные id/диапазоны).  
-# TODO Ввести промежуточный слой «черновиков» для write‑операций: агент заполняет draft‑объекты, админ подтверждает/отклоняет из Mini App/бота.  
-# TODO С самого начала вести лог «AI‑действий»: какой prompt, какие инструменты, какие изменения в БД.
+#
+# --- MCP Cleanup (current) ---
+# TODO mcp: Fix /mcp/mcp endpoint path (rename to /api/mcp or similar)
+# TODO mcp: Refactor MCP server to use service layer (remove direct DB access)
+# TODO mcp: Fix graceful shutdown on Ctrl+C
+#
+# --- Agent /ask Command ---
+# Reuses existing auth pattern from src/bot/auth.py (verify_admin_authorization)
+# User auth: get_authenticated_user(session, telegram_id) -> User (is_active check)
+# Admin auth: verify_admin_authorization(telegram_id) -> User | None
+#
+# TODO agent: Add ollama dependency to pyproject.toml
+# TODO agent: Create LLM client wrapper (src/services/llm_service.py)
+# TODO agent: Create /ask command handler (src/bot/handlers/ask.py)
+#            - Reuse get_authenticated_user for is_active user check
+#            - Conversation state management (ConversationHandler)
+# TODO agent: Implement tool-calling loop with Ollama
+#            - Define tool schemas (balance, bills, period info)
+#            - Parse LLM responses for tool calls
+# TODO agent: Add role-based tool filtering
+#            - User tools: get_balance, list_bills, get_period_info (read-only)
+#            - Admin tools: + create_service_period (write)
+#            - Check user.is_administrator for admin tools
+# TODO agent: Add confirmation prompts for write operations
+# TODO agent: Register /ask handler in bot/__init__.py
+#
+# --- Deployment ---
 # TODO deploy: Create systemd service template (install-service)
 # TODO deploy: Create Caddy reverse proxy config (install-caddy)
 # TODO deploy: Dynamic DNS setup documentation (DuckDNS)
-
-# TODO mcp: Create MCP router with tool schema definitions
-# TODO mcp: Implement get_user_balance query tool
-# TODO mcp: Implement list_user_bills query tool
-# TODO mcp: Implement get_period_info query tool
-# TODO mcp: Implement create_service_period admin tool (with auth)
-# TODO mcp: Wire MCP router into webhook.py
 #
-# Phase 3: AI Agent (src/bot/handlers/agent.py)
-# TODO agent: Add ollama dependency and LLM client wrapper
-# TODO agent: Create /ask command handler skeleton
-# TODO agent: Implement tool-calling loop with Ollama
-# TODO agent: Add role-based tool filtering (user vs admin)
-# TODO agent: Add confirmation prompts for write operations
-# TODO agent: Wire agent handler into bot conversation
-#
-# Phase 4: Enhancements
+# --- Features ---
 # TODO feat: Add Open Mini App button to bot /setmenubutton
 # TODO feat: New Electricity Service Period 1 Sept 2025 - 1 Jan 2026
-# TODO refactor: Make git-filter-repo to clean history
 # TODO feat: Invest tracking module
 # TODO feat: Rules/Job descriptions module
+#
+# --- Maintenance ---
+# TODO refactor: Make git-filter-repo to clean history
 
 # ============================================================================
 # Configuration

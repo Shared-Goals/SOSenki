@@ -122,6 +122,7 @@ async def run_webhook_mode(host: str = "0.0.0.0", port: int = 8000):
         host=host,
         port=port,
         log_level="info",
+        timeout_graceful_shutdown=1,  # Force shutdown after 1 second
     )
     server = uvicorn.Server(config)
     await server.serve()
@@ -144,7 +145,14 @@ def main():
     args = parser.parse_args()
 
     # Only webhook mode is supported (mini app requires HTTP)
-    asyncio.run(run_webhook_mode(args.host, args.port))
+    try:
+        asyncio.run(run_webhook_mode(args.host, args.port))
+    except KeyboardInterrupt:
+        logger.info("Server stopped by user")
+        raise SystemExit(0) from None
+    except asyncio.CancelledError:
+        logger.info("Server shutdown complete")
+        raise SystemExit(0) from None
 
 
 if __name__ == "__main__":

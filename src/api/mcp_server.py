@@ -1,0 +1,402 @@
+"""MCP Server implementation using FastMCP with Streamable HTTP transport."""
+
+import asyncio
+import json
+import logging
+from contextlib import asynccontextmanager
+from datetime import date
+from typing import Any
+
+from mcp.server import FastMCP
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
+from sqlalchemy.orm import sessionmaker
+
+from src.models import Account, Bill, ServicePeriod, User
+from src.services.balance_service import BalanceCalculationService
+
+logger = logging.getLogger(__name__)
+
+
+# ============================================================================
+# Database Engine Setup
+# ============================================================================
+
+async def _get_database_engine():
+    """Create async database engine for MCP operations."""
+    import os
+    from pathlib import Path
+
+    from sqlalchemy.pool import NullPool
+
+    database_url = os.getenv("DATABASE_URL", "sqlite:///sosenki.dev.db")
+
+    # Convert relative paths to absolute paths for SQLite
+    if database_url.startswith("sqlite:///"):
+        # Extract the path part
+        db_path = database_url.replace("sqlite:///", "")
+        # If relative, resolve from project root
+        if not db_path.startswith("/"):
+            project_root = Path(__file__).parent.parent.parent  # src/api/mcp_server.py -> root
+            db_path = str(project_root / db_path)
+        # Ensure parent directory exists
+        Path(db_path).parent.mkdir(parents=True, exist_ok=True)
+        database_url = f"sqlite+aiosqlite:///{db_path}"
+    elif database_url.startswith("sqlite://"):
+        database_url = database_url.replace("sqlite://", "sqlite+aiosqlite:///")
+
+    engine = create_async_engine(
+        database_url,
+        echo=False,
+        poolclass=NullPool,  # Disable connection pooling for simplicity
+    )
+
+    return engine
+
+
+# ============================================================================
+# MCP Lifespan Context Manager
+# ============================================================================
+
+_engine = None
+_session_maker = None
+
+
+@asynccontextmanager
+async def mcp_lifespan(_app: Any = None):
+    """Manage MCP database connection lifecycle.
+
+    Args:
+        _app: The FastMCP app instance (required by lifespan protocol)
+
+    Yields an async session maker for database operations.
+    Ensures proper cleanup on shutdown.
+    """
+    global _engine, _session_maker
+
+    logger.info("MCP lifespan starting...")
+
+    # Setup
+    try:
+        _engine = await _get_database_engine()
+        _session_maker = sessionmaker(_engine, class_=AsyncSession, expire_on_commit=False)
+        logger.info("✓ MCP database engine initialized")
+    except Exception as e:
+        logger.error(f"Failed to initialize MCP database: {e}", exc_info=True)
+        raise
+
+    try:
+        yield
+    except asyncio.CancelledError:
+        # Suppress cancellation errors during graceful shutdown
+        logger.debug("MCP lifespan cancelled during shutdown")
+    finally:
+        # Cleanup
+        try:
+            if _engine:
+                await _engine.dispose()
+                logger.info("✓ MCP database engine disposed")
+        except Exception as e:
+            logger.error(f"Error disposing MCP database engine: {e}", exc_info=True)
+
+
+# ============================================================================
+# FastMCP Server with Tools
+# ============================================================================
+
+mcp = FastMCP("SOSenki", lifespan=mcp_lifespan)
+
+
+@mcp.tool()
+async def get_balance(user_id: int) -> str:
+    """Get current account balance for a user.
+
+    Args:
+        user_id: The user's ID
+
+    Returns:
+        JSON string with balance information including:
+        - balance: Current account balance in base currency
+        - currency: Currency code (USD, EUR, etc.)
+        - last_updated: ISO timestamp of last balance update
+    """
+    if not _session_maker:
+        return json.dumps({"error": "Database not initialized"})
+
+    try:
+        async with _session_maker() as session:
+            # Get user's primary account
+            user = await session.get(User, user_id)
+            if not user:
+                return json.dumps({"error": f"User {user_id} not found"})
+
+            # Query account for this user
+            result = await session.execute(select(Account).where(Account.user_id == user_id))
+            account = result.scalars().first()
+
+            if not account:
+                return json.dumps({"error": f"No account found for user {user_id}"})
+
+            # Use BalanceCalculationService to calculate balance
+            balance_service = BalanceCalculationService(session)
+            balance = await balance_service.calculate_user_balance(user_id)
+
+            return json.dumps(
+                {
+                    "user_id": user_id,
+                    "account_id": account.id,
+                    "balance": float(balance),
+                    "currency": "USD",
+                    "last_updated": account.updated_at.isoformat() if account.updated_at else None,
+                }
+            )
+    except Exception as e:
+        logger.error(f"Error in get_balance: {e}", exc_info=True)
+        return json.dumps({"error": str(e)})
+
+
+@mcp.tool()
+async def list_bills(user_id: int, limit: int = 10) -> str:
+    """List recent bills for a user.
+
+    Args:
+        user_id: The user's ID
+        limit: Maximum number of bills to return (default: 10)
+
+    Returns:
+        JSON string with list of bills containing:
+        - bill_id: Bill identifier
+        - amount: Bill amount
+        - bill_date: Date bill was issued
+        - due_date: Payment deadline
+        - status: PAID, PENDING, or OVERDUE
+    """
+    if not _session_maker:
+        return json.dumps({"error": "Database not initialized"})
+
+    try:
+        async with _session_maker() as session:
+            # Get user's account first
+            result = await session.execute(select(Account).where(Account.user_id == user_id))
+            account = result.scalars().first()
+
+            if not account:
+                return json.dumps({"error": f"No account found for user {user_id}"})
+
+            # Query bills for this account
+            bills_result = await session.execute(
+                select(Bill)
+                .where(Bill.account_id == account.id)
+                .order_by(Bill.date.desc())
+                .limit(limit)
+            )
+            bills = bills_result.scalars().all()
+
+            return json.dumps(
+                {
+                    "user_id": user_id,
+                    "account_id": account.id,
+                    "bills": [
+                        {
+                            "bill_id": bill.id,
+                            "amount": float(bill.amount),
+                            "bill_date": bill.date.isoformat() if bill.date else None,
+                            "due_date": bill.due_date.isoformat() if bill.due_date else None,
+                            "status": "PENDING",  # TODO: Implement actual status logic
+                        }
+                        for bill in bills
+                    ],
+                }
+            )
+    except Exception as e:
+        logger.error(f"Error in list_bills: {e}", exc_info=True)
+        return json.dumps({"error": str(e)})
+
+
+@mcp.tool()
+async def get_period_info(period_id: int) -> str:
+    """Get service period information.
+
+    Args:
+        period_id: The service period ID
+
+    Returns:
+        JSON string with period details including:
+        - period_id: Period identifier
+        - name: Period name
+        - start_date: Period start date
+        - end_date: Period end date
+        - active: Whether period is currently active
+    """
+    if not _session_maker:
+        return json.dumps({"error": "Database not initialized"})
+
+    try:
+        async with _session_maker() as session:
+            period = await session.get(ServicePeriod, period_id)
+
+            if not period:
+                return json.dumps({"error": f"Period {period_id} not found"})
+
+            from datetime import datetime
+
+            today = datetime.now().date()
+            is_active = period.start_date <= today <= period.end_date
+
+            return json.dumps(
+                {
+                    "period_id": period.id,
+                    "name": period.name,
+                    "start_date": period.start_date.isoformat(),
+                    "end_date": period.end_date.isoformat(),
+                    "active": is_active,
+                }
+            )
+    except Exception as e:
+        logger.error(f"Error in get_period_info: {e}", exc_info=True)
+        return json.dumps({"error": str(e)})
+
+
+@mcp.tool()
+async def create_service_period(
+    name: str,
+    start_date: str,
+    end_date: str,
+    electricity_start: int | None = None,
+    electricity_rate: float | None = None,
+) -> str:
+    """Create a new service period.
+
+    Admin-only tool. Requires authentication.
+
+    Args:
+        name: Period name (e.g., "September 2025 - January 2026")
+        start_date: Period start date in ISO format (YYYY-MM-DD)
+        end_date: Period end date in ISO format (YYYY-MM-DD)
+        electricity_start: Optional starting electricity meter reading
+        electricity_rate: Optional electricity rate per unit
+
+    Returns:
+        JSON string with created period details or error message.
+        On success, includes period_id, name, start_date, end_date.
+        On error, includes error message and validation details.
+    """
+    if not _session_maker:
+        return json.dumps({"error": "Database not initialized"})
+
+    try:
+        # Parse and validate dates
+        try:
+            start = date.fromisoformat(start_date)
+            end = date.fromisoformat(end_date)
+        except ValueError as e:
+            return json.dumps({"error": f"Invalid date format: {e}. Use YYYY-MM-DD."})
+
+        # Validate date order
+        if start >= end:
+            return json.dumps(
+                {
+                    "error": "start_date must be before end_date",
+                    "start_date": start_date,
+                    "end_date": end_date,
+                }
+            )
+
+        # Create period in database
+        async with _session_maker() as session:
+            new_period = ServicePeriod(
+                name=name,
+                start_date=start,
+                end_date=end,
+            )
+
+            # TODO: Handle electricity_start and electricity_rate if needed
+            # For now, just store the basic period data
+
+            session.add(new_period)
+            await session.commit()
+            await session.refresh(new_period)
+
+            return json.dumps(
+                {
+                    "success": True,
+                    "period_id": new_period.id,
+                    "name": new_period.name,
+                    "start_date": new_period.start_date.isoformat(),
+                    "end_date": new_period.end_date.isoformat(),
+                }
+            )
+
+    except Exception as e:
+        logger.error(f"Error in create_service_period: {e}", exc_info=True)
+        return json.dumps({"error": str(e)})
+
+
+# ============================================================================
+# SSE App Getter
+# ============================================================================
+
+
+class MCPStreamableHTTPAppWrapper:
+    """Wraps the MCP Streamable HTTP app to handle cancellation during shutdown gracefully."""
+
+    def __init__(self, mcp_app: Any) -> None:
+        """Initialize the wrapper.
+
+        Args:
+            mcp_app: The FastMCP app instance
+        """
+        self.mcp_app = mcp_app
+        # Use streamable_http_app() method which is the correct FastMCP API
+        self.http_app = mcp_app.streamable_http_app()
+
+    async def __call__(self, scope: Any, receive: Any, send: Any) -> None:
+        """ASGI interface with graceful cancellation handling.
+
+        Args:
+            scope: ASGI scope
+            receive: ASGI receive callable
+            send: ASGI send callable
+        """
+        try:
+            await self.http_app(scope, receive, send)
+        except asyncio.CancelledError:
+            # Gracefully handle cancellation during shutdown
+            logger.debug("MCP HTTP connection cancelled during shutdown")
+            raise
+        except Exception as e:
+            logger.error(f"Error in MCP HTTP app: {e}", exc_info=True)
+            raise
+
+
+def get_mcp_http_app() -> tuple[Any, Any]:
+    """Get the MCP Streamable HTTP ASGI app and its lifespan for FastAPI.
+
+    Returns:
+        tuple: (ASGI app, lifespan context manager)
+        - App: The Starlette app from FastMCP 
+        - Lifespan: Context manager for FastAPI initialization
+
+    Usage:
+        mcp_http_app, mcp_lifespan = get_mcp_http_app()
+        app = FastAPI(lifespan=mcp_lifespan)
+        app.mount("/mcp", mcp_http_app)
+    """
+    # Get the Starlette app without path parameter - mounting handles the path
+    http_app = mcp.streamable_http_app()
+    
+    # Create a lifespan context that initializes the MCP session manager
+    @asynccontextmanager
+    async def mcp_lifespan(app: Any):
+        # The http_app's router has a lifespan_context that manages MCP session initialization
+        if hasattr(http_app.router, 'lifespan_context'):
+            async with http_app.router.lifespan_context(http_app):
+                yield
+        else:
+            # Fallback: just yield without special MCP initialization
+            yield
+    
+    return http_app, mcp_lifespan
+
+
+__all__ = ["mcp", "get_mcp_http_app", "mcp_lifespan"]
