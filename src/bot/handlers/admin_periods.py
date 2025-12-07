@@ -13,7 +13,7 @@ from telegram import (
 from telegram.ext import ContextTypes
 
 from src.bot.auth import verify_admin_authorization
-from src.services import ServicePeriodService, SessionLocal
+from src.services import AsyncSessionLocal, ServicePeriodService
 from src.services.localizer import t
 from src.utils.parsers import parse_date
 
@@ -158,10 +158,9 @@ async def handle_period_action_selection(update: Update, context: ContextTypes.D
         if cq.data == "period_action:create":
             # Start new period creation flow
             # Query max end_date from existing periods to suggest as default start date
-            db = SessionLocal()
-            try:
-                period_service = ServicePeriodService(db)
-                last_period = period_service.get_latest_period()
+            async with AsyncSessionLocal() as session:
+                period_service = ServicePeriodService(session)
+                last_period = await period_service.get_latest_period()
 
                 keyboard = None
                 if last_period and last_period.end_date:
@@ -173,15 +172,11 @@ async def handle_period_action_selection(update: Update, context: ContextTypes.D
                 )
                 return States.INPUT_START_DATE
 
-            finally:
-                db.close()
-
         elif cq.data == "period_action:view":
             # Show existing periods
-            db = SessionLocal()
-            try:
-                period_service = ServicePeriodService(db)
-                periods = period_service.list_periods(limit=10)
+            async with AsyncSessionLocal() as session:
+                period_service = ServicePeriodService(session)
+                periods = await period_service.list_periods(limit=10)
 
                 if not periods:
                     await cq.edit_message_text(t("labels.no_periods_found"))
@@ -202,9 +197,6 @@ async def handle_period_action_selection(update: Update, context: ContextTypes.D
 
                 await cq.edit_message_text(periods_text, parse_mode="Markdown")
                 return States.END
-
-            finally:
-                db.close()
 
         else:
             logger.warning("Unknown period action: %s", cq.data)
@@ -275,11 +267,10 @@ async def handle_period_end_date_input(update: Update, context: ContextTypes.DEF
         context.user_data["period_end_date"] = value
 
         # Create ServicePeriod via service
-        db = SessionLocal()
-        try:
-            period_service = ServicePeriodService(db)
+        async with AsyncSessionLocal() as session:
+            period_service = ServicePeriodService(session)
             admin_id = context.user_data.get("periods_admin_id")
-            new_period = period_service.create_period(start_date, value, actor_id=admin_id)
+            new_period = await period_service.create_period(start_date, value, actor_id=admin_id)
 
             context.user_data["period_id"] = new_period.id
             context.user_data["period_name"] = new_period.name
@@ -303,9 +294,6 @@ async def handle_period_end_date_input(update: Update, context: ContextTypes.DEF
             await update.message.reply_text(message)
 
             return States.END
-
-        finally:
-            db.close()
 
     except Exception as e:
         logger.error("Error in period end date input: %s", e, exc_info=True)

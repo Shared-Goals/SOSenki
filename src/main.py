@@ -83,25 +83,23 @@ async def run_webhook_mode(host: str = "0.0.0.0", port: int = 8000):
     # Setup webhook route with the bot app
     await setup_webhook_route(bot_app)
 
-    # Add custom startup handler to initialize bot after Uvicorn binds port
-    async def init_bot_on_startup():
-        global bot_app
-        if bot_app:
-            logger.info("Initializing bot Application on FastAPI startup...")
-            await bot_app.initialize()
-            logger.info("Bot Application initialized")
+    # Initialize bot immediately before starting server
+    # This ensures bot is ready before any requests arrive
+    logger.info("Initializing bot Application...")
+    await bot_app.initialize()
+    logger.info("Bot Application initialized")
 
-            # Register webhook URL with Telegram
-            webhook_url = os.getenv("WEBHOOK_URL", "").strip()
-            if webhook_url:
-                logger.info(f"Setting Telegram webhook to {webhook_url}")
-                try:
-                    await bot_app.bot.set_webhook(url=webhook_url, drop_pending_updates=True)
-                    logger.info("Webhook registered successfully with Telegram")
-                except Exception as e:
-                    logger.error(f"Failed to set webhook: {e}", exc_info=True)
-            else:
-                logger.warning("WEBHOOK_URL not set in environment")
+    # Register webhook URL with Telegram
+    webhook_url = os.getenv("WEBHOOK_URL", "").strip()
+    if webhook_url:
+        logger.info(f"Setting Telegram webhook to {webhook_url}")
+        try:
+            await bot_app.bot.set_webhook(url=webhook_url, drop_pending_updates=True)
+            logger.info("Webhook registered successfully with Telegram")
+        except Exception as e:
+            logger.error(f"Failed to set webhook: {e}", exc_info=True)
+    else:
+        logger.warning("WEBHOOK_URL not set in environment")
 
     async def shutdown_bot():
         global bot_app
@@ -112,8 +110,7 @@ async def run_webhook_mode(host: str = "0.0.0.0", port: int = 8000):
             except Exception as e:
                 logger.error(f"Error shutting down bot: {e}")
 
-    # Register startup/shutdown with FastAPI
-    app.add_event_handler("startup", init_bot_on_startup)
+    # Register shutdown with FastAPI
     app.add_event_handler("shutdown", shutdown_bot)
 
     logger.info(f"Starting Uvicorn server on {host}:{port}...")

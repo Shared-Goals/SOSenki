@@ -12,23 +12,18 @@ from sqlalchemy.pool import StaticPool
 DATABASE_URL = os.getenv("DATABASE_URL")
 
 # Create engine (SQLite uses StaticPool for simplicity in dev/test)
-if DATABASE_URL.startswith("sqlite"):
-    engine = create_engine(
-        DATABASE_URL,
-        connect_args={"check_same_thread": False},
-        poolclass=StaticPool,
-    )
-    # For async operations, create async engine
-    async_database_url = DATABASE_URL.replace("sqlite:///", "sqlite+aiosqlite:///")
-    async_engine = create_async_engine(
-        async_database_url,
-        connect_args={"check_same_thread": False},
-        poolclass=StaticPool,
-    )
-else:
-    engine = create_engine(DATABASE_URL, pool_pre_ping=True)
-    # For async operations
-    async_engine = create_async_engine(DATABASE_URL, pool_pre_ping=True)
+engine = create_engine(
+    DATABASE_URL,
+    connect_args={"check_same_thread": False},
+    poolclass=StaticPool,
+)
+# For async operations, create async engine
+async_database_url = DATABASE_URL.replace("sqlite:///", "sqlite+aiosqlite:///")
+async_engine = create_async_engine(
+    async_database_url,
+    connect_args={"check_same_thread": False},
+    poolclass=StaticPool,
+)
 
 # Create session factory
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)

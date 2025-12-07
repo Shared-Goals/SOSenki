@@ -1,7 +1,7 @@
 """Unit tests for admin_bills.py handler functions."""
 
 from decimal import Decimal
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from telegram import CallbackQuery, Message, Update
@@ -244,13 +244,20 @@ async def test_handle_electricity_losses_valid(mock_update, mock_context):
     mock_update.callback_query.message = AsyncMock()
     mock_update.callback_query.message.edit_text = AsyncMock()
 
-    with patch("src.bot.handlers.admin_bills.SessionLocal"):
-        with patch("src.bot.handlers.admin_bills.ElectricityService"):
+    mock_async_session = MagicMock()
+    mock_async_session.__aenter__ = AsyncMock(return_value=mock_async_session)
+    mock_async_session.__aexit__ = AsyncMock(return_value=None)
+
+    with patch("src.bot.handlers.admin_bills.AsyncSessionLocal", return_value=mock_async_session):
+        with patch("src.bot.handlers.admin_bills.ElectricityService") as mock_elec_service:
+            mock_elec_inst = MagicMock()
+            mock_elec_service.return_value = mock_elec_inst
+            mock_elec_inst.get_electricity_bills_for_period = AsyncMock(return_value=Decimal("0"))
+            mock_elec_inst.distribute_shared_costs = AsyncMock(return_value=[])
             with patch("src.bot.handlers.admin_bills.ServicePeriodService") as mock_period_service:
-                mock_service_inst = AsyncMock()
+                mock_service_inst = MagicMock()
                 mock_period_service.return_value = mock_service_inst
-                mock_service_inst.get_by_id.return_value = None
-                mock_service_inst.list_accounts.return_value = []
+                mock_service_inst.get_by_id = AsyncMock(return_value=MagicMock())
 
                 result = await handle_electricity_losses(mock_update, mock_context)
 
@@ -367,9 +374,21 @@ async def test_handle_electricity_losses_comma_decimal(mock_update, mock_context
     mock_update.callback_query.message = AsyncMock()
     mock_update.callback_query.message.edit_text = AsyncMock()
 
-    with patch("src.bot.handlers.admin_bills.SessionLocal"):
-        with patch("src.bot.handlers.admin_bills.ElectricityService"):
-            with patch("src.bot.handlers.admin_bills.ServicePeriodService"):
+    mock_async_session = MagicMock()
+    mock_async_session.__aenter__ = AsyncMock(return_value=mock_async_session)
+    mock_async_session.__aexit__ = AsyncMock(return_value=None)
+
+    with patch("src.bot.handlers.admin_bills.AsyncSessionLocal", return_value=mock_async_session):
+        with patch("src.bot.handlers.admin_bills.ElectricityService") as mock_elec_service:
+            mock_elec_inst = MagicMock()
+            mock_elec_service.return_value = mock_elec_inst
+            mock_elec_inst.get_electricity_bills_for_period = AsyncMock(return_value=Decimal("0"))
+            mock_elec_inst.distribute_shared_costs = AsyncMock(return_value=[])
+            with patch("src.bot.handlers.admin_bills.ServicePeriodService") as mock_period_service:
+                mock_service_inst = MagicMock()
+                mock_period_service.return_value = mock_service_inst
+                mock_service_inst.get_by_id = AsyncMock(return_value=MagicMock())
+
                 result = await handle_electricity_losses(mock_update, mock_context)
 
     assert result == States.CONFIRM_BILLS

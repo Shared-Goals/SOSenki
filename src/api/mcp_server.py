@@ -1,6 +1,5 @@
 """MCP Server implementation using FastMCP with HTTP transport for FastAPI integration."""
 
-import asyncio
 import json
 import logging
 from contextlib import asynccontextmanager
@@ -8,12 +7,11 @@ from datetime import date
 from typing import Any
 
 from fastmcp import FastMCP
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 from sqlalchemy.orm import sessionmaker
 
-from src.models import Account, Bill, ServicePeriod, User
 from src.services.balance_service import BalanceCalculationService
+from src.services.period_service import AsyncServicePeriodService
 
 logger = logging.getLogger(__name__)
 
@@ -21,6 +19,7 @@ logger = logging.getLogger(__name__)
 # ============================================================================
 # Database Engine Setup
 # ============================================================================
+
 
 async def _get_database_engine():
     """Create async database engine for MCP operations."""
@@ -87,9 +86,6 @@ async def mcp_lifespan(_app: Any = None):
 
     try:
         yield
-    except asyncio.CancelledError:
-        # Suppress cancellation errors during graceful shutdown
-        logger.debug("MCP lifespan cancelled during shutdown")
     finally:
         # Cleanup
         try:
@@ -125,21 +121,20 @@ async def get_balance(user_id: int) -> str:
 
     try:
         async with _session_maker() as session:
-            # Get user's primary account
-            user = await session.get(User, user_id)
+            service = BalanceCalculationService(session)
+
+            # Validate user exists
+            user = await service.get_user_by_id(user_id)
             if not user:
                 return json.dumps({"error": f"User {user_id} not found"})
 
-            # Query account for this user
-            result = await session.execute(select(Account).where(Account.user_id == user_id))
-            account = result.scalars().first()
-
+            # Get account
+            account = await service.get_account_for_user(user_id)
             if not account:
                 return json.dumps({"error": f"No account found for user {user_id}"})
 
-            # Use BalanceCalculationService to calculate balance
-            balance_service = BalanceCalculationService(session)
-            balance = await balance_service.calculate_user_balance(user_id)
+            # Calculate balance
+            balance = await service.calculate_user_balance(user_id)
 
             return json.dumps(
                 {
@@ -168,7 +163,7 @@ async def list_bills(user_id: int, limit: int = 10) -> str:
         - bill_id: Bill identifier
         - amount: Bill amount
         - bill_date: Date bill was issued
-        - due_date: Payment deadline
+        - bill_type: Type of bill
         - status: PAID, PENDING, or OVERDUE
     """
     if not _session_maker:
@@ -176,21 +171,15 @@ async def list_bills(user_id: int, limit: int = 10) -> str:
 
     try:
         async with _session_maker() as session:
-            # Get user's account first
-            result = await session.execute(select(Account).where(Account.user_id == user_id))
-            account = result.scalars().first()
+            service = BalanceCalculationService(session)
 
+            # Get account to verify user exists
+            account = await service.get_account_for_user(user_id)
             if not account:
                 return json.dumps({"error": f"No account found for user {user_id}"})
 
-            # Query bills for this account
-            bills_result = await session.execute(
-                select(Bill)
-                .where(Bill.account_id == account.id)
-                .order_by(Bill.date.desc())
-                .limit(limit)
-            )
-            bills = bills_result.scalars().all()
+            # Get bills using service
+            bills = await service.list_bills_for_user(user_id, limit)
 
             return json.dumps(
                 {
@@ -198,11 +187,11 @@ async def list_bills(user_id: int, limit: int = 10) -> str:
                     "account_id": account.id,
                     "bills": [
                         {
-                            "bill_id": bill.id,
-                            "amount": float(bill.amount),
-                            "bill_date": bill.date.isoformat() if bill.date else None,
-                            "due_date": bill.due_date.isoformat() if bill.due_date else None,
-                            "status": "PENDING",  # TODO: Implement actual status logic
+                            "bill_id": bill.bill_id,
+                            "amount": bill.amount,
+                            "bill_date": bill.bill_date,
+                            "bill_type": bill.bill_type,
+                            "status": "PENDING",  # TODO: Implement status logic
                         }
                         for bill in bills
                     ],
@@ -233,23 +222,19 @@ async def get_period_info(period_id: int) -> str:
 
     try:
         async with _session_maker() as session:
-            period = await session.get(ServicePeriod, period_id)
+            service = AsyncServicePeriodService(session)
+            period_info = await service.get_period_info(period_id)
 
-            if not period:
+            if not period_info:
                 return json.dumps({"error": f"Period {period_id} not found"})
-
-            from datetime import datetime
-
-            today = datetime.now().date()
-            is_active = period.start_date <= today <= period.end_date
 
             return json.dumps(
                 {
-                    "period_id": period.id,
-                    "name": period.name,
-                    "start_date": period.start_date.isoformat(),
-                    "end_date": period.end_date.isoformat(),
-                    "active": is_active,
+                    "period_id": period_info.period_id,
+                    "name": period_info.name,
+                    "start_date": period_info.start_date,
+                    "end_date": period_info.end_date,
+                    "active": period_info.is_active,
                 }
             )
     except Exception as e:
@@ -284,38 +269,17 @@ async def create_service_period(
     if not _session_maker:
         return json.dumps({"error": "Database not initialized"})
 
+    # Parse and validate dates
     try:
-        # Parse and validate dates
-        try:
-            start = date.fromisoformat(start_date)
-            end = date.fromisoformat(end_date)
-        except ValueError as e:
-            return json.dumps({"error": f"Invalid date format: {e}. Use YYYY-MM-DD."})
+        start = date.fromisoformat(start_date)
+        end = date.fromisoformat(end_date)
+    except ValueError as e:
+        return json.dumps({"error": f"Invalid date format: {e}. Use YYYY-MM-DD."})
 
-        # Validate date order
-        if start >= end:
-            return json.dumps(
-                {
-                    "error": "start_date must be before end_date",
-                    "start_date": start_date,
-                    "end_date": end_date,
-                }
-            )
-
-        # Create period in database
+    try:
         async with _session_maker() as session:
-            new_period = ServicePeriod(
-                name=name,
-                start_date=start,
-                end_date=end,
-            )
-
-            # TODO: Handle electricity_start and electricity_rate if needed
-            # For now, just store the basic period data
-
-            session.add(new_period)
-            await session.commit()
-            await session.refresh(new_period)
+            service = AsyncServicePeriodService(session)
+            new_period = await service.create_period(start, end, name)
 
             return json.dumps(
                 {
@@ -326,7 +290,15 @@ async def create_service_period(
                     "end_date": new_period.end_date.isoformat(),
                 }
             )
-
+    except ValueError as e:
+        # Date validation error from service
+        return json.dumps(
+            {
+                "error": str(e),
+                "start_date": start_date,
+                "end_date": end_date,
+            }
+        )
     except Exception as e:
         logger.error(f"Error in create_service_period: {e}", exc_info=True)
         return json.dumps({"error": str(e)})

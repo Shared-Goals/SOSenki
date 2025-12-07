@@ -5,7 +5,7 @@ from decimal import ROUND_HALF_UP, Decimal
 from typing import NamedTuple
 
 from sqlalchemy import func, select
-from sqlalchemy.orm import Session
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.models.bill import Bill, BillType
 from src.models.property import Property
@@ -25,13 +25,13 @@ class OwnerShare(NamedTuple):
 
 
 class ElectricityService:
-    """Service for electricity billing calculations and cost distribution."""
+    """Async service for electricity billing calculations and cost distribution."""
 
-    def __init__(self, db_session: Session):
-        self.db = db_session
+    def __init__(self, session: AsyncSession):
+        self.session = session
 
+    @staticmethod
     def calculate_total_electricity(
-        self,
         electricity_start: Decimal,
         electricity_end: Decimal,
         electricity_multiplier: Decimal,
@@ -41,6 +41,8 @@ class ElectricityService:
         """Calculate total electricity cost.
 
         Formula: (end - start) × multiplier × rate × (1 + losses)
+
+        This is a pure calculation method - no DB access required.
 
         Args:
             electricity_start: Starting meter reading (kWh)
@@ -74,7 +76,7 @@ class ElectricityService:
 
         return total.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
 
-    def get_electricity_bills_for_period(
+    async def get_electricity_bills_for_period(
         self,
         service_period_id: int,
     ) -> Decimal:
@@ -86,16 +88,16 @@ class ElectricityService:
         Returns:
             Sum of all ELECTRICITY bill amounts for the period (or 0 if none exist)
         """
-        result = self.db.execute(
+        result = await self.session.execute(
             select(func.sum(Bill.bill_amount)).where(
                 (Bill.service_period_id == service_period_id)
                 & (Bill.bill_type == BillType.ELECTRICITY)
             )
-        ).scalar()
+        )
 
-        return result or Decimal(0)
+        return result.scalar() or Decimal(0)
 
-    def calculate_owner_shares(
+    async def calculate_owner_shares(
         self,
         service_period: ServicePeriod,
     ) -> dict[int, Decimal]:
@@ -119,16 +121,17 @@ class ElectricityService:
             .group_by(Property.owner_id)
         )
 
-        results = self.db.execute(stmt).all()
+        result = await self.session.execute(stmt)
+        rows = result.all()
 
         owner_shares = {}
-        for owner_id, total_weight in results:
+        for owner_id, total_weight in rows:
             if total_weight is not None:
                 owner_shares[owner_id] = Decimal(str(total_weight))
 
         return owner_shares
 
-    def distribute_shared_costs(
+    async def distribute_shared_costs(
         self,
         total_shared_cost: Decimal,
         service_period: ServicePeriod,
@@ -148,7 +151,7 @@ class ElectricityService:
             raise ValueError("Total shared cost cannot be negative")
 
         # Get owner shares (weight aggregation)
-        owner_shares = self.calculate_owner_shares(service_period)
+        owner_shares = await self.calculate_owner_shares(service_period)
 
         if not owner_shares:
             logger.warning("No active properties found for distribution")
@@ -165,7 +168,9 @@ class ElectricityService:
         result = []
         for owner_id, owner_weight in owner_shares.items():
             # Get user name
-            user = self.db.execute(select(User).where(User.id == owner_id)).scalar_one_or_none()
+            stmt = select(User).where(User.id == owner_id)
+            user_result = await self.session.execute(stmt)
+            user = user_result.scalar_one_or_none()
             if not user:
                 logger.warning("User %d not found for owner_id", owner_id)
                 continue
@@ -186,7 +191,7 @@ class ElectricityService:
 
         return result
 
-    def get_previous_service_period(self) -> ServicePeriod | None:
+    async def get_previous_service_period(self) -> ServicePeriod | None:
         """Get the most recent service period before current date.
 
         Used for fetching default electricity parameters.
@@ -201,4 +206,5 @@ class ElectricityService:
             .limit(1)
         )
 
-        return self.db.execute(stmt).scalar_one_or_none()
+        result = await self.session.execute(stmt)
+        return result.scalar_one_or_none()

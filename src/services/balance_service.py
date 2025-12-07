@@ -18,6 +18,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.models.account import Account
 from src.models.bill import Bill
 from src.models.transaction import Transaction
+from src.models.user import User
 
 logger = logging.getLogger(__name__)
 
@@ -27,6 +28,16 @@ class BalanceResult(NamedTuple):
 
     balance: float
     invert_for_display: bool  # True for OWNER accounts (display negated value)
+
+
+class UserBillInfo(NamedTuple):
+    """Bill information for API/MCP responses."""
+
+    bill_id: int
+    amount: float
+    bill_date: str | None  # ISO format
+    bill_type: str
+    period_name: str | None
 
 
 class BalanceCalculationService:
@@ -147,3 +158,66 @@ class BalanceCalculationService:
         invert_for_display = account_type == "owner"
 
         return BalanceResult(balance=balance, invert_for_display=invert_for_display)
+
+    async def get_user_by_id(self, user_id: int) -> User | None:
+        """Get user by ID.
+
+        Args:
+            user_id: User ID to fetch
+
+        Returns:
+            User if found, None otherwise
+        """
+        return await self.session.get(User, user_id)
+
+    async def get_account_for_user(self, user_id: int) -> Account | None:
+        """Get account for a user.
+
+        Args:
+            user_id: User ID to look up account for
+
+        Returns:
+            Account if found, None otherwise
+        """
+        stmt = select(Account).filter(Account.user_id == user_id)
+        result = await self.session.execute(stmt)
+        return result.scalar_one_or_none()
+
+    async def list_bills_for_user(self, user_id: int, limit: int = 10) -> list[UserBillInfo]:
+        """List recent bills for a user.
+
+        Args:
+            user_id: User ID to fetch bills for
+            limit: Maximum number of bills to return
+
+        Returns:
+            List of UserBillInfo with bill details
+        """
+        # Get user's account
+        account = await self.get_account_for_user(user_id)
+        if not account:
+            return []
+
+        # Query bills for this account, ordered by date desc
+        stmt = (
+            select(Bill)
+            .filter(Bill.account_id == account.id)
+            .order_by(Bill.created_at.desc())
+            .limit(limit)
+        )
+        result = await self.session.execute(stmt)
+        bills = result.scalars().all()
+
+        # Convert to UserBillInfo
+        return [
+            UserBillInfo(
+                bill_id=bill.id,
+                amount=float(bill.bill_amount),
+                bill_date=bill.created_at.isoformat() if bill.created_at else None,
+                bill_type=bill.bill_type.value
+                if hasattr(bill.bill_type, "value")
+                else str(bill.bill_type),
+                period_name=None,  # Would need eager loading for period name
+            )
+            for bill in bills
+        ]

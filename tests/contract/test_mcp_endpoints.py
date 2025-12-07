@@ -7,7 +7,7 @@ from src.api.mcp_server import mcp
 
 def get_registered_tools() -> list:
     """Get tools from FastMCP's internal tool manager.
-    
+
     FastMCP uses async get_tools() method, but we can access
     the internal _tools dict synchronously for testing.
     """
@@ -57,6 +57,7 @@ class TestToolSchemaValidation:
 
         # FastMCP stores function reference
         import inspect
+
         sig = inspect.signature(get_balance.fn)
         assert "user_id" in sig.parameters
 
@@ -66,6 +67,7 @@ class TestToolSchemaValidation:
         list_bills = next(t for t in tools if t.name == "list_bills")
 
         import inspect
+
         sig = inspect.signature(list_bills.fn)
         assert "user_id" in sig.parameters
         assert "limit" in sig.parameters
@@ -76,6 +78,7 @@ class TestToolSchemaValidation:
         get_period_info = next(t for t in tools if t.name == "get_period_info")
 
         import inspect
+
         sig = inspect.signature(get_period_info.fn)
         assert "period_id" in sig.parameters
 
@@ -85,6 +88,7 @@ class TestToolSchemaValidation:
         create_period = next(t for t in tools if t.name == "create_service_period")
 
         import inspect
+
         sig = inspect.signature(create_period.fn)
         # Required fields
         assert "name" in sig.parameters

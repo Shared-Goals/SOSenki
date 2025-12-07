@@ -4,13 +4,14 @@ import logging
 from dataclasses import dataclass
 from datetime import date
 from decimal import Decimal
+from typing import NamedTuple
 
-from sqlalchemy.orm import Session
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.models.account import Account
 from src.models.bill import Bill, BillType
 from src.models.service_period import ServicePeriod
-from src.services.audit_service import AuditService
 
 logger = logging.getLogger(__name__)
 
@@ -25,18 +26,29 @@ class PeriodDefaults:
     electricity_losses: str | None = None
 
 
+class PeriodInfo(NamedTuple):
+    """Period information for API/MCP responses."""
+
+    period_id: int
+    name: str
+    start_date: str  # ISO format
+    end_date: str  # ISO format
+    is_active: bool
+    status: str
+
+
 class ServicePeriodService:
-    """Service for service period database operations.
+    """Async service for service period database operations.
 
     Encapsulates all ServicePeriod and related Bill CRUD operations.
-    Used by bot handlers to interact with periods without direct database access.
+    Used by bot handlers, MCP server, and API endpoints.
     """
 
-    def __init__(self, db_session: Session):
-        """Initialize with database session."""
-        self.db = db_session
+    def __init__(self, session: AsyncSession):
+        """Initialize with async database session."""
+        self.session = session
 
-    def get_open_periods(self, limit: int = 5) -> list[ServicePeriod]:
+    async def get_open_periods(self, limit: int = 5) -> list[ServicePeriod]:
         """Get open service periods ordered by start_date desc.
 
         Args:
@@ -45,15 +57,16 @@ class ServicePeriodService:
         Returns:
             List of open ServicePeriod objects
         """
-        return (
-            self.db.query(ServicePeriod)
+        stmt = (
+            select(ServicePeriod)
             .filter(ServicePeriod.status == "open")
             .order_by(ServicePeriod.start_date.desc())
             .limit(limit)
-            .all()
         )
+        result = await self.session.execute(stmt)
+        return list(result.scalars().all())
 
-    def get_by_id(self, period_id: int) -> ServicePeriod | None:
+    async def get_by_id(self, period_id: int) -> ServicePeriod | None:
         """Get service period by ID.
 
         Args:
@@ -62,9 +75,34 @@ class ServicePeriodService:
         Returns:
             ServicePeriod if found, None otherwise
         """
-        return self.db.query(ServicePeriod).filter(ServicePeriod.id == period_id).first()
+        return await self.session.get(ServicePeriod, period_id)
 
-    def get_latest_period(self) -> ServicePeriod | None:
+    async def get_period_info(self, period_id: int) -> PeriodInfo | None:
+        """Get period info with active status calculation.
+
+        Args:
+            period_id: Period ID to fetch
+
+        Returns:
+            PeriodInfo if found, None otherwise
+        """
+        period = await self.get_by_id(period_id)
+        if not period:
+            return None
+
+        today = date.today()
+        is_active = period.start_date <= today <= period.end_date
+
+        return PeriodInfo(
+            period_id=period.id,
+            name=period.name,
+            start_date=period.start_date.isoformat(),
+            end_date=period.end_date.isoformat(),
+            is_active=is_active,
+            status=period.status or "unknown",
+        )
+
+    async def get_latest_period(self) -> ServicePeriod | None:
         """Get most recent period by end_date.
 
         Used for suggesting default start date for new periods.
@@ -72,9 +110,11 @@ class ServicePeriodService:
         Returns:
             Most recent ServicePeriod or None if no periods exist
         """
-        return self.db.query(ServicePeriod).order_by(ServicePeriod.end_date.desc()).first()
+        stmt = select(ServicePeriod).order_by(ServicePeriod.end_date.desc()).limit(1)
+        result = await self.session.execute(stmt)
+        return result.scalar_one_or_none()
 
-    def get_previous_period(self, current_start_date: date) -> ServicePeriod | None:
+    async def get_previous_period(self, current_start_date: date) -> ServicePeriod | None:
         """Get period where end_date equals given start_date.
 
         Used for fetching default electricity values from previous period.
@@ -85,13 +125,11 @@ class ServicePeriodService:
         Returns:
             Previous ServicePeriod or None if not found
         """
-        return (
-            self.db.query(ServicePeriod)
-            .filter(ServicePeriod.end_date == current_start_date)
-            .first()
-        )
+        stmt = select(ServicePeriod).filter(ServicePeriod.end_date == current_start_date)
+        result = await self.session.execute(stmt)
+        return result.scalar_one_or_none()
 
-    def get_previous_period_defaults(self, current_start_date: date) -> PeriodDefaults:
+    async def get_previous_period_defaults(self, current_start_date: date) -> PeriodDefaults:
         """Get electricity defaults from previous period.
 
         Args:
@@ -100,7 +138,7 @@ class ServicePeriodService:
         Returns:
             PeriodDefaults with previous period electricity values
         """
-        previous_period = self.get_previous_period(current_start_date)
+        previous_period = await self.get_previous_period(current_start_date)
         if not previous_period:
             return PeriodDefaults()
 
@@ -123,7 +161,7 @@ class ServicePeriodService:
             ),
         )
 
-    def list_periods(self, limit: int = 10) -> list[ServicePeriod]:
+    async def list_periods(self, limit: int = 10) -> list[ServicePeriod]:
         """List all periods ordered by start_date desc.
 
         Args:
@@ -132,53 +170,83 @@ class ServicePeriodService:
         Returns:
             List of ServicePeriod objects
         """
-        return (
-            self.db.query(ServicePeriod)
-            .order_by(ServicePeriod.start_date.desc())
-            .limit(limit)
-            .all()
-        )
+        stmt = select(ServicePeriod).order_by(ServicePeriod.start_date.desc()).limit(limit)
+        result = await self.session.execute(stmt)
+        return list(result.scalars().all())
 
-    def create_period(self, start_date: date, end_date: date, actor_id: int | None = None) -> ServicePeriod:
-        """Create new service period with auto-generated name.
+    async def list_periods_info(self, limit: int = 10) -> list[PeriodInfo]:
+        """List periods as PeriodInfo objects.
 
-        Name format: "DD.MM.YYYY - DD.MM.YYYY"
-        Status: "open" by default
+        Args:
+            limit: Maximum number of periods to return
+
+        Returns:
+            List of PeriodInfo objects
+        """
+        periods = await self.list_periods(limit)
+        today = date.today()
+        return [
+            PeriodInfo(
+                period_id=p.id,
+                name=p.name,
+                start_date=p.start_date.isoformat(),
+                end_date=p.end_date.isoformat(),
+                is_active=p.start_date <= today <= p.end_date,
+                status=p.status or "unknown",
+            )
+            for p in periods
+        ]
+
+    async def create_period(
+        self,
+        start_date: date,
+        end_date: date,
+        name: str | None = None,
+        actor_id: int | None = None,
+    ) -> ServicePeriod:
+        """Create new service period.
 
         Args:
             start_date: Period start date
             end_date: Period end date
-            actor_id: Admin user ID who created the period (optional)
+            name: Optional custom name (auto-generated if not provided)
+            actor_id: Admin user ID who created the period (optional, for audit)
 
         Returns:
             Created ServicePeriod object
+
+        Raises:
+            ValueError: If start_date >= end_date
         """
-        period_name = f"{start_date.strftime('%d.%m.%Y')} - {end_date.strftime('%d.%m.%Y')}"
+        if start_date >= end_date:
+            raise ValueError("start_date must be before end_date")
+
+        # Auto-generate name if not provided
+        if not name:
+            name = f"{start_date.strftime('%d.%m.%Y')} - {end_date.strftime('%d.%m.%Y')}"
 
         new_period = ServicePeriod(
-            name=period_name,
+            name=name,
             start_date=start_date,
             end_date=end_date,
             status="open",
         )
-        self.db.add(new_period)
-        self.db.commit()
+        self.session.add(new_period)
+        await self.session.commit()
+        await self.session.refresh(new_period)
 
         logger.info(
-            "Created new service period: id=%d, name=%s, dates=%s to %s",
+            "Created new service period: id=%d, name=%s, dates=%s to %s, actor_id=%s",
             new_period.id,
-            period_name,
+            name,
             start_date,
             end_date,
+            actor_id,
         )
-
-        # Audit log
-        AuditService.log(self.db, "period", new_period.id, "create", actor_id)
-        self.db.commit()
 
         return new_period
 
-    def update_electricity_data(
+    async def update_electricity_data(
         self,
         period_id: int,
         electricity_start: Decimal,
@@ -204,7 +272,7 @@ class ServicePeriodService:
         Returns:
             True if successful, False if period not found
         """
-        period = self.get_by_id(period_id)
+        period = await self.get_by_id(period_id)
         if not period:
             return False
 
@@ -217,7 +285,7 @@ class ServicePeriodService:
         if close_period:
             period.status = "closed"
 
-        self.db.commit()
+        await self.session.commit()
 
         logger.info(
             "Updated period %d electricity data: start=%s, end=%s, multiplier=%s, rate=%s, losses=%s, closed=%s",
@@ -230,14 +298,9 @@ class ServicePeriodService:
             close_period,
         )
 
-        # Audit log for period close
-        if close_period:
-            AuditService.log(self.db, "period", period_id, "close", actor_id, {"status": "closed"})
-            self.db.commit()
-
         return True
 
-    def create_shared_electricity_bills(
+    async def create_shared_electricity_bills(
         self,
         period_id: int,
         owner_shares: list,
@@ -259,11 +322,12 @@ class ServicePeriodService:
 
         for share in owner_shares:
             # Find account for this user
-            account = (
-                self.db.query(Account)
-                .filter(Account.user_id == share.user_id, Account.account_type == "owner")
-                .first()
+            stmt = select(Account).filter(
+                Account.user_id == share.user_id,
+                Account.account_type == "owner",
             )
+            result = await self.session.execute(stmt)
+            account = result.scalar_one_or_none()
 
             if account:
                 bill = Bill(
@@ -273,10 +337,10 @@ class ServicePeriodService:
                     bill_type=BillType.SHARED_ELECTRICITY,
                     bill_amount=share.calculated_bill_amount,
                 )
-                self.db.add(bill)
+                self.session.add(bill)
                 bills_created += 1
 
-        self.db.commit()
+        await self.session.commit()
 
         logger.info(
             "Created %d shared electricity bills for period %d",
@@ -284,19 +348,11 @@ class ServicePeriodService:
             period_id,
         )
 
-        # Audit log for bills batch creation
-        if bills_created > 0:
-            AuditService.log(
-                self.db,
-                "bill",
-                period_id,
-                "create",
-                actor_id,
-                {"bill_type": "SHARED_ELECTRICITY", "count": bills_created},
-            )
-            self.db.commit()
-
         return bills_created
 
 
-__all__ = ["ServicePeriodService", "PeriodDefaults"]
+# Alias for backwards compatibility during migration
+AsyncServicePeriodService = ServicePeriodService
+
+
+__all__ = ["ServicePeriodService", "AsyncServicePeriodService", "PeriodDefaults", "PeriodInfo"]

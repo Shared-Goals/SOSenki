@@ -184,11 +184,13 @@ async def test_handle_period_action_selection_create_no_previous(
     mock_callback_update.callback_query.data = "period_action:create"
 
     mock_service = MagicMock()
-    mock_service.get_latest_period.return_value = None
+    mock_service.get_latest_period = AsyncMock(return_value=None)
 
-    with patch("src.bot.handlers.admin_periods.SessionLocal") as mock_db:
-        mock_session = MagicMock()
-        mock_db.return_value = mock_session
+    mock_async_session = MagicMock()
+    mock_async_session.__aenter__ = AsyncMock(return_value=mock_async_session)
+    mock_async_session.__aexit__ = AsyncMock(return_value=None)
+
+    with patch("src.bot.handlers.admin_periods.AsyncSessionLocal", return_value=mock_async_session):
         with patch(
             "src.bot.handlers.admin_periods.ServicePeriodService",
             return_value=mock_service,
@@ -211,11 +213,13 @@ async def test_handle_period_action_selection_create_with_previous(
     mock_period.end_date = date(2025, 1, 31)
 
     mock_service = MagicMock()
-    mock_service.get_latest_period.return_value = mock_period
+    mock_service.get_latest_period = AsyncMock(return_value=mock_period)
 
-    with patch("src.bot.handlers.admin_periods.SessionLocal") as mock_db:
-        mock_session = MagicMock()
-        mock_db.return_value = mock_session
+    mock_async_session = MagicMock()
+    mock_async_session.__aenter__ = AsyncMock(return_value=mock_async_session)
+    mock_async_session.__aexit__ = AsyncMock(return_value=None)
+
+    with patch("src.bot.handlers.admin_periods.AsyncSessionLocal", return_value=mock_async_session):
         with patch(
             "src.bot.handlers.admin_periods.ServicePeriodService",
             return_value=mock_service,
@@ -231,11 +235,13 @@ async def test_handle_period_action_selection_view_empty(mock_callback_update, m
     mock_callback_update.callback_query.data = "period_action:view"
 
     mock_service = MagicMock()
-    mock_service.list_periods.return_value = []
+    mock_service.list_periods = AsyncMock(return_value=[])
 
-    with patch("src.bot.handlers.admin_periods.SessionLocal") as mock_db:
-        mock_session = MagicMock()
-        mock_db.return_value = mock_session
+    mock_async_session = MagicMock()
+    mock_async_session.__aenter__ = AsyncMock(return_value=mock_async_session)
+    mock_async_session.__aexit__ = AsyncMock(return_value=None)
+
+    with patch("src.bot.handlers.admin_periods.AsyncSessionLocal", return_value=mock_async_session):
         with patch(
             "src.bot.handlers.admin_periods.ServicePeriodService",
             return_value=mock_service,
@@ -260,11 +266,13 @@ async def test_handle_period_action_selection_view_with_periods(mock_callback_up
     mock_period_closed.status = "closed"
 
     mock_service = MagicMock()
-    mock_service.list_periods.return_value = [mock_period_open, mock_period_closed]
+    mock_service.list_periods = AsyncMock(return_value=[mock_period_open, mock_period_closed])
 
-    with patch("src.bot.handlers.admin_periods.SessionLocal") as mock_db:
-        mock_session = MagicMock()
-        mock_db.return_value = mock_session
+    mock_async_session = MagicMock()
+    mock_async_session.__aenter__ = AsyncMock(return_value=mock_async_session)
+    mock_async_session.__aexit__ = AsyncMock(return_value=None)
+
+    with patch("src.bot.handlers.admin_periods.AsyncSessionLocal", return_value=mock_async_session):
         with patch(
             "src.bot.handlers.admin_periods.ServicePeriodService",
             return_value=mock_service,
@@ -404,11 +412,13 @@ async def test_handle_period_end_date_input_valid_creates_period(mock_update, mo
     mock_period.name = "01.01.2025 - 31.01.2025"
 
     mock_service = MagicMock()
-    mock_service.create_period.return_value = mock_period
+    mock_service.create_period = AsyncMock(return_value=mock_period)
 
-    with patch("src.bot.handlers.admin_periods.SessionLocal") as mock_db:
-        mock_session = MagicMock()
-        mock_db.return_value = mock_session
+    mock_async_session = MagicMock()
+    mock_async_session.__aenter__ = AsyncMock(return_value=mock_async_session)
+    mock_async_session.__aexit__ = AsyncMock(return_value=None)
+
+    with patch("src.bot.handlers.admin_periods.AsyncSessionLocal", return_value=mock_async_session):
         with patch(
             "src.bot.handlers.admin_periods.ServicePeriodService",
             return_value=mock_service,
@@ -418,7 +428,9 @@ async def test_handle_period_end_date_input_valid_creates_period(mock_update, mo
     assert result == -1
     assert mock_context.user_data["period_id"] == 1
     assert mock_context.user_data["period_name"] == "01.01.2025 - 31.01.2025"
-    mock_service.create_period.assert_called_once_with(date(2025, 1, 1), date(2025, 1, 31), actor_id=123)
+    mock_service.create_period.assert_awaited_once_with(
+        date(2025, 1, 1), date(2025, 1, 31), actor_id=123
+    )
 
 
 @pytest.mark.asyncio
@@ -427,8 +439,11 @@ async def test_handle_period_end_date_input_exception(mock_update, mock_context)
     mock_context.user_data["period_start_date"] = date(2025, 1, 1)
     mock_update.message.text = "31.01.2025"
 
-    with patch("src.bot.handlers.admin_periods.SessionLocal") as mock_db:
-        mock_db.side_effect = Exception("Database error")
+    mock_async_session = MagicMock()
+    mock_async_session.__aenter__ = AsyncMock(side_effect=Exception("Database error"))
+    mock_async_session.__aexit__ = AsyncMock(return_value=None)
+
+    with patch("src.bot.handlers.admin_periods.AsyncSessionLocal", return_value=mock_async_session):
         result = await handle_period_end_date_input(mock_update, mock_context)
 
     assert result == -1

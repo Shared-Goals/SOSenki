@@ -13,7 +13,7 @@ from telegram import (
 from telegram.ext import ContextTypes
 
 from src.bot.auth import verify_admin_authorization
-from src.services import ServicePeriodService, SessionLocal
+from src.services import AsyncSessionLocal, ServicePeriodService
 from src.services.electricity_service import ElectricityService
 from src.services.localizer import t
 from src.utils.parsers import parse_russian_decimal
@@ -159,12 +159,10 @@ async def handle_electricity_bills_command(  # noqa: C901
                 pass
             return States.END
 
-        db = SessionLocal()
-
-        try:
+        async with AsyncSessionLocal() as session:
             # Query open service periods
-            period_service = ServicePeriodService(db)
-            open_periods = period_service.get_open_periods(limit=5)
+            period_service = ServicePeriodService(session)
+            open_periods = await period_service.get_open_periods(limit=5)
 
             # Build inline buttons for period selection
             buttons = []
@@ -196,9 +194,6 @@ async def handle_electricity_bills_command(  # noqa: C901
 
             return States.SELECT_PERIOD
 
-        finally:
-            db.close()
-
     except Exception as e:
         logger.error("Error starting electricity bills workflow: %s", e, exc_info=True)
         try:
@@ -223,10 +218,8 @@ async def handle_electricity_period_selection(  # noqa: C901
 
         await cq.answer()
 
-        db = SessionLocal()
-
-        try:
-            period_service = ServicePeriodService(db)
+        async with AsyncSessionLocal() as session:
+            period_service = ServicePeriodService(session)
 
             # Extract period ID
             try:
@@ -237,7 +230,7 @@ async def handle_electricity_period_selection(  # noqa: C901
                 return States.END
 
             # Fetch period
-            period = period_service.get_by_id(period_id)
+            period = await period_service.get_by_id(period_id)
             if not period:
                 logger.warning("Period %d not found", period_id)
                 await cq.edit_message_text(t("errors.error_processing"))
@@ -248,7 +241,7 @@ async def handle_electricity_period_selection(  # noqa: C901
             context.user_data["electricity_period_name"] = period.name
 
             # Fetch previous period values for defaults
-            defaults = period_service.get_previous_period_defaults(period.start_date)
+            defaults = await period_service.get_previous_period_defaults(period.start_date)
 
             # Store all previous period values for keyboard buttons
             context.user_data["electricity_previous_rate"] = defaults.electricity_rate
@@ -266,9 +259,6 @@ async def handle_electricity_period_selection(  # noqa: C901
             await cq.message.reply_text(prompt, reply_markup=keyboard)
 
             return States.INPUT_METER_START
-
-        finally:
-            db.close()
 
     except Exception as e:
         logger.error("Error in period selection: %s", e, exc_info=True)
@@ -418,17 +408,17 @@ async def handle_electricity_losses(  # noqa: C901
         context.user_data["electricity_losses"] = value
 
         # Calculate total electricity cost
-        db = SessionLocal()
-        try:
-            electricity_service = ElectricityService(db)
-            period_service = ServicePeriodService(db)
+        async with AsyncSessionLocal() as session:
+            electricity_service = ElectricityService(session)
+            period_service = ServicePeriodService(session)
 
             start = context.user_data.get("electricity_start")
             end = context.user_data.get("electricity_end")
             multiplier = context.user_data.get("electricity_multiplier")
             rate = context.user_data.get("electricity_rate")
 
-            total_cost = electricity_service.calculate_total_electricity(
+            # calculate_total_electricity is a static method (no await needed)
+            total_cost = ElectricityService.calculate_total_electricity(
                 start, end, multiplier, rate, value
             )
 
@@ -438,7 +428,9 @@ async def handle_electricity_losses(  # noqa: C901
             period_id = context.user_data.get("electricity_period_id")
 
             # Get existing electricity bills sum
-            personal_bills_sum = electricity_service.get_electricity_bills_for_period(period_id)
+            personal_bills_sum = await electricity_service.get_electricity_bills_for_period(
+                period_id
+            )
 
             # Calculate shared cost
             shared_cost = total_cost - personal_bills_sum
@@ -447,22 +439,19 @@ async def handle_electricity_losses(  # noqa: C901
             context.user_data["electricity_shared_cost"] = shared_cost
 
             # Fetch the service period
-            period = period_service.get_by_id(period_id)
+            period = await period_service.get_by_id(period_id)
             if not period:
                 await update.message.reply_text(t("errors.error_processing"))
                 return States.END
 
             # Distribute costs
-            owner_shares = electricity_service.distribute_shared_costs(shared_cost, period)
+            owner_shares = await electricity_service.distribute_shared_costs(shared_cost, period)
 
             context.user_data["electricity_owner_shares"] = owner_shares
             context.user_data["electricity_shared_cost"] = shared_cost
 
             # Show the proposed bills table with owner shares and summary (skip state 9)
             return await _show_electricity_bills_table(update, context)
-
-        finally:
-            db.close()
 
     except Exception as e:
         logger.error("Error in losses input: %s", e, exc_info=True)
@@ -551,60 +540,59 @@ async def handle_electricity_create_bills(  # noqa: C901
             return States.CONFIRM_BILLS
 
         # Create bills
-        db = SessionLocal()
-        try:
-            period_service = ServicePeriodService(db)
-            owner_shares = context.user_data.get("electricity_owner_shares", [])
-            period_id = context.user_data.get("electricity_period_id")
+        async with AsyncSessionLocal() as session:
+            try:
+                period_service = ServicePeriodService(session)
+                owner_shares = context.user_data.get("electricity_owner_shares", [])
+                period_id = context.user_data.get("electricity_period_id")
 
-            if not owner_shares or not period_id:
-                await cq.edit_message_text(t("errors.error_processing"))
+                if not owner_shares or not period_id:
+                    await cq.edit_message_text(t("errors.error_processing"))
+                    return States.END
+
+                # Update service period with electricity values and close it
+                admin_id = context.user_data.get("electricity_admin_id")
+                await period_service.update_electricity_data(
+                    period_id=period_id,
+                    electricity_start=context.user_data.get("electricity_start"),
+                    electricity_end=context.user_data.get("electricity_end"),
+                    electricity_multiplier=context.user_data.get("electricity_multiplier"),
+                    electricity_rate=context.user_data.get("electricity_rate"),
+                    electricity_losses=context.user_data.get("electricity_losses"),
+                    close_period=True,
+                    actor_id=admin_id,
+                )
+
+                # Create bills for each owner
+                bills_created = await period_service.create_shared_electricity_bills(
+                    period_id=period_id,
+                    owner_shares=owner_shares,
+                    actor_id=admin_id,
+                )
+
+                # Confirm success with period name (send as reply to preserve message history)
+                period_name = context.user_data.get("electricity_period_name", "период")
+                message = t(
+                    "electricity.bills_created_and_closed",
+                    count=bills_created,
+                    period_name=period_name,
+                )
+                await cq.message.reply_text(message)
+
+                logger.info(
+                    "Created %d shared electricity bills for period %d", bills_created, period_id
+                )
+
                 return States.END
 
-            # Update service period with electricity values and close it
-            admin_id = context.user_data.get("electricity_admin_id")
-            period_service.update_electricity_data(
-                period_id=period_id,
-                electricity_start=context.user_data.get("electricity_start"),
-                electricity_end=context.user_data.get("electricity_end"),
-                electricity_multiplier=context.user_data.get("electricity_multiplier"),
-                electricity_rate=context.user_data.get("electricity_rate"),
-                electricity_losses=context.user_data.get("electricity_losses"),
-                close_period=True,
-                actor_id=admin_id,
-            )
-
-            # Create bills for each owner
-            bills_created = period_service.create_shared_electricity_bills(
-                period_id=period_id,
-                owner_shares=owner_shares,
-                actor_id=admin_id,
-            )
-
-            # Confirm success with period name (send as reply to preserve message history)
-            period_name = context.user_data.get("electricity_period_name", "период")
-            message = t(
-                "electricity.bills_created_and_closed", count=bills_created, period_name=period_name
-            )
-            await cq.message.reply_text(message)
-
-            logger.info(
-                "Created %d shared electricity bills for period %d", bills_created, period_id
-            )
-
-            return States.END
-
-        except Exception as e:
-            db.rollback()
-            logger.error("Error creating bills: %s", e, exc_info=True)
-            try:
-                await cq.edit_message_text(t("errors.error_processing"))
-            except Exception:
-                pass
-            return States.END
-
-        finally:
-            db.close()
+            except Exception as e:
+                await session.rollback()
+                logger.error("Error creating bills: %s", e, exc_info=True)
+                try:
+                    await cq.edit_message_text(t("errors.error_processing"))
+                except Exception:
+                    pass
+                return States.END
 
     except Exception as e:
         logger.error("Error in create bills handler: %s", e, exc_info=True)

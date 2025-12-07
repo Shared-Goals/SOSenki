@@ -1,5 +1,7 @@
 """Telegram bot application factory."""
 
+import warnings
+
 from telegram.ext import (
     Application,
     CallbackQueryHandler,
@@ -8,6 +10,7 @@ from telegram.ext import (
     MessageHandler,
     filters,
 )
+from telegram.warnings import PTBUserWarning
 
 from src.bot.config import bot_config
 from src.bot.handlers.admin_bills import (
@@ -56,6 +59,10 @@ async def create_bot_app() -> Application:
 
     T032, T044, T052: Register command handlers with the bot application.
     """
+    # Suppress PTBUserWarning about per_message settings in ConversationHandler
+    # per_message=False is appropriate when using mixed handler types
+    warnings.filterwarnings("ignore", message=".*per_message.*", category=PTBUserWarning)
+
     app = Application.builder().token(bot_config.telegram_bot_token).build()
 
     # /start command handler
@@ -105,6 +112,7 @@ async def create_bot_app() -> Application:
         },
         fallbacks=[CommandHandler("bills", handle_electricity_bills_cancel)],
         allow_reentry=True,
+        per_message=False,
     )
     app.add_handler(electricity_bills_conv)
 
@@ -127,6 +135,7 @@ async def create_bot_app() -> Application:
         },
         fallbacks=[CommandHandler("periods", handle_periods_cancel)],
         allow_reentry=True,
+        per_message=False,
     )
     app.add_handler(periods_conv)
 

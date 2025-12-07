@@ -3,12 +3,29 @@
 import logging
 import tempfile
 from pathlib import Path
+from unittest.mock import MagicMock, patch
 
 from src.services.logging import setup_server_logging
 
 
 class TestServerLogging:
     """Test server logging configuration."""
+
+    def setup_method(self):
+        """Save original handlers before each test."""
+        self.root_logger = logging.getLogger()
+        self.original_handlers = self.root_logger.handlers.copy()
+
+    def teardown_method(self):
+        """Restore original handlers after each test."""
+        self.root_logger = logging.getLogger()
+        # Remove all handlers
+        for handler in self.root_logger.handlers[:]:
+            handler.close()
+            self.root_logger.removeHandler(handler)
+        # Restore originals
+        for handler in self.original_handlers:
+            self.root_logger.addHandler(handler)
 
     def test_setup_server_logging_creates_log_directory(self) -> None:
         """Verify setup_server_logging creates logs directory if missing."""
@@ -29,14 +46,10 @@ class TestServerLogging:
         with tempfile.TemporaryDirectory() as temp_dir:
             log_file = Path(temp_dir) / "server.log"
 
-            # Clear existing handlers
-            root_logger = logging.getLogger()
-            root_logger.handlers.clear()
-
             setup_server_logging(str(log_file))
 
             # Should have 2 handlers (stdout + file)
-            assert len(root_logger.handlers) == 2
+            assert len(self.root_logger.handlers) == 2
 
     def test_setup_server_logging_sets_info_level(self) -> None:
         """Verify setup_server_logging sets log level to INFO."""
@@ -45,29 +58,22 @@ class TestServerLogging:
 
             setup_server_logging(str(log_file))
 
-            root_logger = logging.getLogger()
-            assert root_logger.level == logging.INFO
+            assert self.root_logger.level == logging.INFO
 
     def test_setup_server_logging_handler_levels(self) -> None:
         """Verify both handlers are set to INFO level."""
         with tempfile.TemporaryDirectory() as temp_dir:
             log_file = Path(temp_dir) / "server.log"
 
-            root_logger = logging.getLogger()
-            root_logger.handlers.clear()
-
             setup_server_logging(str(log_file))
 
-            for handler in root_logger.handlers:
+            for handler in self.root_logger.handlers:
                 assert handler.level == logging.INFO
 
     def test_setup_server_logging_writes_to_file(self) -> None:
         """Verify setup_server_logging writes log messages to file."""
         with tempfile.TemporaryDirectory() as temp_dir:
             log_file = Path(temp_dir) / "server.log"
-
-            root_logger = logging.getLogger()
-            root_logger.handlers.clear()
 
             setup_server_logging(str(log_file))
 
@@ -86,9 +92,6 @@ class TestServerLogging:
         with tempfile.TemporaryDirectory() as temp_dir:
             log_file = Path(temp_dir) / "server.log"
 
-            root_logger = logging.getLogger()
-            root_logger.handlers.clear()
-
             setup_server_logging(str(log_file))
 
             # Log a test message
@@ -105,9 +108,6 @@ class TestServerLogging:
         with tempfile.TemporaryDirectory() as temp_dir:
             log_file = Path(temp_dir) / "server.log"
 
-            root_logger = logging.getLogger()
-            root_logger.handlers.clear()
-
             setup_server_logging(str(log_file))
 
             # Log with specific logger name
@@ -122,9 +122,6 @@ class TestServerLogging:
         """Verify log formatter includes log level."""
         with tempfile.TemporaryDirectory() as temp_dir:
             log_file = Path(temp_dir) / "server.log"
-
-            root_logger = logging.getLogger()
-            root_logger.handlers.clear()
 
             setup_server_logging(str(log_file))
 
@@ -142,17 +139,16 @@ class TestServerLogging:
         with tempfile.TemporaryDirectory() as temp_dir:
             log_file = Path(temp_dir) / "server.log"
 
-            root_logger = logging.getLogger()
-
-            # Add a dummy handler
+            # Add a dummy handler to root logger
             dummy_handler = logging.StreamHandler()
-            root_logger.addHandler(dummy_handler)
-            initial_count = len(root_logger.handlers)
-            assert initial_count >= 1
+            self.root_logger.addHandler(dummy_handler)
 
-            # Setup logging (should clear and recreate)
+            setup_server_logging(str(log_file))
+
+            # Should have 2 new handlers (stdout + file), not including the dummy
+            assert len(self.root_logger.handlers) == 2
             setup_server_logging(str(log_file))
 
             # Should have exactly 2 handlers (not 3+)
-            assert len(root_logger.handlers) == 2
-            assert dummy_handler not in root_logger.handlers
+            assert len(self.root_logger.handlers) == 2
+            assert dummy_handler not in self.root_logger.handlers

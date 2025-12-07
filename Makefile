@@ -2,13 +2,6 @@
 # Roadmap (commit-based milestones)
 # ============================================================================
 #
-# TODO mcp: Refactor MCP server to use service layer (remove direct DB access)
-#
-# --- Agent /ask Command ---
-# Reuses existing auth pattern from src/bot/auth.py (verify_admin_authorization)
-# User auth: get_authenticated_user(session, telegram_id) -> User (is_active check)
-# Admin auth: verify_admin_authorization(telegram_id) -> User | None
-#
 # TODO agent: Add ollama dependency to pyproject.toml
 # TODO agent: Create LLM client wrapper (src/services/llm_service.py)
 # TODO agent: Create /ask command handler (src/bot/handlers/ask.py)

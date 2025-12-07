@@ -7,6 +7,7 @@ Database Strategy for Unit/Integration Tests:
 - Note: For seeding/data integrity tests, see seeding/tests/conftest.py which uses sosenki.db
 """
 
+import logging
 import os
 import subprocess
 import sys
@@ -16,6 +17,11 @@ from pathlib import Path
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.pool import StaticPool
+
+# Configure logging BEFORE importing from src (so setup_server_logging doesn't fail)
+# This ensures file handlers write to a valid, persistent location
+logging_dir = Path(__file__).parent.parent / "logs"
+logging_dir.mkdir(parents=True, exist_ok=True)
 
 # Set test database URL BEFORE any imports from src
 # This ensures the SessionLocal and engine use the test database
@@ -30,6 +36,7 @@ os.environ["MINI_APP_URL"] = "http://localhost:3000/mini-app/"
 
 # Set seeding config path (required for seeding tests)
 os.environ["SEEDING_CONFIG_PATH"] = "seeding/config/seeding.json"
+
 
 # Get the project root directory
 project_root = Path(__file__).parent.parent
