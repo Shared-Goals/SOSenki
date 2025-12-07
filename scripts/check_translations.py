@@ -52,36 +52,60 @@ def extract_keys_from_html(code: str) -> set:
     return set(matches)
 
 
-def find_hardcoded_russian_text(code: str, file_path: str) -> list:
+def find_hardcoded_russian_text(code: str, file_path: str) -> list:  # noqa: C901
     """Find hardcoded Russian/Cyrillic text that should use translations.
 
     Returns list of (line_num, snippet) tuples for hardcoded Russian text outside comments.
     """
     issues = []
     cyrillic_pattern = r"[а-яёА-ЯЁ]"
+    in_multiline_string = False
+    in_js_comment = False
 
     for line_num, line in enumerate(code.split("\n"), 1):
-        # Skip comments
-        if line.strip().startswith("#") or line.strip().startswith("//"):
-            continue
-        if '"""' in line or "'''" in line:
+        stripped = line.strip()
+
+        # Track Python multiline docstrings
+        if '"""' in stripped or "'''" in stripped:
+            # Count occurrences - odd means toggle state
+            if stripped.count('"""') % 2 == 1 or stripped.count("'''") % 2 == 1:
+                in_multiline_string = not in_multiline_string
             continue
 
-        # Skip lines that already use t() function
-        if "t(" in line and "data-i18n" not in line:
+        if in_multiline_string:
             continue
 
-        # Skip data-i18n attributes
-        if "data-i18n" in line:
+        # Track JS multiline comments (/* ... */)
+        if "/*" in stripped:
+            in_js_comment = True
+        if "*/" in stripped:
+            in_js_comment = False
+            continue
+        if in_js_comment:
             continue
 
-        # Check for hardcoded Russian text
+        # Skip single-line comments
+        if stripped.startswith("#") or stripped.startswith("//"):
+            continue
+
+        # Skip JSDoc/block comment lines (lines starting with *)
+        if stripped.startswith("*"):
+            continue
+
+        # Skip HTML comments
+        if "<!--" in stripped:
+            continue
+
+        # Check for Cyrillic text
         if re.search(cyrillic_pattern, line):
-            # Skip false positives (like in t() calls or docstrings)
-            if "t('" in line or 't("' in line or "Предыдущее значение:" not in line:
-                # But DO catch "Предыдущее значение:" as it's hardcoded
-                if "Предыдущое значение:" in line or "(Предыдущее значение:" in line:
-                    issues.append((line_num, line.strip()[:80]))
+            # Skip lines that properly use t() function or data-i18n
+            if "data-i18n" in line:
+                continue
+
+            # If line has t() call, it's likely using translations properly
+            # BUT we should still catch strings that are NOT inside t()
+            # For now, flag any line with Cyrillic for manual review
+            issues.append((line_num, stripped[:100]))
 
     return issues
 

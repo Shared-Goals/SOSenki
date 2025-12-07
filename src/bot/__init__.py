@@ -34,6 +34,7 @@ from src.bot.handlers.admin_periods import (
 
 # Import from handlers package (modular structure)
 from src.bot.handlers.admin_requests import handle_admin_callback, handle_admin_response
+from src.bot.handlers.ask import handle_ask_command
 from src.bot.handlers.common import handle_request_command, handle_start_command
 
 # logger = logging.getLogger(__name__)
@@ -69,6 +70,8 @@ async def create_bot_app() -> Application:
     app.add_handler(CommandHandler("start", handle_start_command))
     # T031/T032: Register /request command handler
     app.add_handler(CommandHandler("request", handle_request_command))
+    # /ask command handler for natural language AI queries
+    app.add_handler(CommandHandler("ask", handle_ask_command))
     # Unified admin response handler: handles both Approve and Reject replies
     # Register after /request so it only handles replies to notifications
     # Uses a simple filter: any text message that is a reply (handler will validate content)

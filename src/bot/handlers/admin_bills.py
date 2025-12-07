@@ -571,7 +571,7 @@ async def handle_electricity_create_bills(  # noqa: C901
                 )
 
                 # Confirm success with period name (send as reply to preserve message history)
-                period_name = context.user_data.get("electricity_period_name", "период")
+                period_name = context.user_data.get("electricity_period_name", t("labels.period"))
                 message = t(
                     "electricity.bills_created_and_closed",
                     count=bills_created,

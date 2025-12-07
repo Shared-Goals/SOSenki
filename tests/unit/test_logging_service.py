@@ -3,7 +3,6 @@
 import logging
 import tempfile
 from pathlib import Path
-from unittest.mock import MagicMock, patch
 
 from src.services.logging import setup_server_logging
 

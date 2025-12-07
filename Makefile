@@ -2,14 +2,6 @@
 # Roadmap (commit-based milestones)
 # ============================================================================
 #
-# TODO agent: Add ollama dependency to pyproject.toml
-# TODO agent: Create LLM client wrapper (src/services/llm_service.py)
-# TODO agent: Create /ask command handler (src/bot/handlers/ask.py)
-#            - Reuse get_authenticated_user for is_active user check
-#            - Conversation state management (ConversationHandler)
-# TODO agent: Implement tool-calling loop with Ollama
-#            - Define tool schemas (balance, bills, period info)
-#            - Parse LLM responses for tool calls
 # TODO agent: Add role-based tool filtering
 #            - User tools: get_balance, list_bills, get_period_info (read-only)
 #            - Admin tools: + create_service_period (write)
@@ -173,9 +165,17 @@ coverage:
 # Local Development with Webhook Mode
 
 # Run bot + mini app in webhook mode with ngrok tunnel
-# Automatically starts ngrok tunnel and loads environment variables (dynamic + static from .env)
+# Automatically starts Ollama (if not running), ngrok tunnel, and loads environment variables (dynamic + static from .env)
 # Kills any existing process on port 8000 if address is already in use
 serve:
+	@echo "🔍 Checking Ollama service..."
+	@if ! pgrep -f "ollama serve" > /dev/null; then \
+		echo "❌ Ollama is not running. Starting..."; \
+		brew services start ollama > /dev/null 2>&1 && echo "✅ Ollama started" || (echo "❌ Failed to start Ollama"; exit 1); \
+		sleep 2; \
+	else \
+		echo "✅ Ollama is running"; \
+	fi
 	@PORT=8000; \
 	if lsof -Pi :$$PORT -sTCP:LISTEN -t >/dev/null 2>&1; then \
 		echo "⚠️  Port $$PORT is already in use. Killing existing process..."; \

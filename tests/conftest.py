@@ -7,7 +7,6 @@ Database Strategy for Unit/Integration Tests:
 - Note: For seeding/data integrity tests, see seeding/tests/conftest.py which uses sosenki.db
 """
 
-import logging
 import os
 import subprocess
 import sys

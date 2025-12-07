@@ -1,8 +1,9 @@
 """Unit tests for main entry point to increase coverage."""
 
 import os
-import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
+
+import pytest
 
 
 class TestMainEnvironmentValidation:
@@ -53,12 +54,13 @@ class TestMainEnvironmentLoading:
 
     def test_load_environment_handles_missing_files(self):
         """Test that missing .env files don't cause errors."""
-        from src.main import _load_environment
         from unittest.mock import MagicMock
+
+        from src.main import _load_environment
 
         mock_path = MagicMock()
         mock_path.return_value.exists.return_value = False
-        
+
         with patch("src.main.Path", mock_path):
             # Should handle gracefully
             _load_environment()
@@ -71,9 +73,7 @@ class TestMainWebhookSetup:
     async def test_webhook_registration_failure(self):
         """Test handling of webhook registration failure."""
         mock_bot_app = MagicMock()
-        mock_bot_app.bot.set_webhook = AsyncMock(
-            side_effect=Exception("Telegram API error")
-        )
+        mock_bot_app.bot.set_webhook = AsyncMock(side_effect=Exception("Telegram API error"))
         mock_bot_app.shutdown = AsyncMock()
 
         # Create a minimal FastAPI app
@@ -182,10 +182,8 @@ class TestMainArgumentParsing:
     def test_main_webhook_mode_default(self):
         """Test that webhook mode is the default."""
         with patch("sys.argv", ["main.py"]):
-            with patch("src.main.run_webhook_mode", new_callable=AsyncMock) as mock_run:
+            with patch("src.main.run_webhook_mode", new_callable=AsyncMock):
                 with patch("asyncio.run"):
-                    from src.main import main
-
                     # Just verify arguments parse correctly
                     import argparse
 
@@ -209,9 +207,7 @@ class TestMainArgumentParsing:
         import argparse
 
         parser = argparse.ArgumentParser(description="SOSenki Bot")
-        parser.add_argument(
-            "--mode", choices=["webhook"], default="webhook", help="Run mode"
-        )
+        parser.add_argument("--mode", choices=["webhook"], default="webhook", help="Run mode")
         parser.add_argument("--host", default="0.0.0.0", help="Host to bind to")
         parser.add_argument("--port", type=int, default=8000, help="Port to bind to")
 

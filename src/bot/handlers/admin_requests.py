@@ -79,7 +79,7 @@ async def _execute_admin_action(
             e,
             exc_info=True,
         )
-        return None, t("errors.error_processing_response")
+        return None, t("errors.error_processing")
     finally:
         db.close()
 
