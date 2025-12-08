@@ -93,23 +93,31 @@ async def handle_admin_response(  # noqa: C901
     The handler validates the reply, extracts the request id from the
     replied-to notification text, and then performs approve or reject
     actions atomically.
+
+    IMPORTANT: This handler ONLY processes replies to request notifications
+    (messages containing '#<id>' pattern). Other replies are silently ignored
+    to allow them to be processed by other handlers (e.g., /ask LLM handler).
     """
     try:
         if not update.message or not update.message.from_user:
             logger.warning("Received admin response without message or user info")
             return
 
-        admin_id = str(update.message.from_user.id)
-        admin_name = update.message.from_user.username or "Admin"
-
         # Must be a reply to the original notification
         if not update.message.reply_to_message:
-            logger.warning("Admin response without reply_to_message from %s", admin_id)
-            try:
-                await update.message.reply_text(t("requests.reply_approve_or_reject"))
-            except Exception:
-                logger.debug("Could not send reply_text to admin %s", admin_id, exc_info=True)
+            # Not a reply - silently ignore, let other handlers process
             return
+
+        # CRITICAL: Only handle replies to request notifications
+        # Request notifications contain '#<id>' pattern (e.g., "Request #123:")
+        reply_text = update.message.reply_to_message.text or ""
+        if not re.search(r"#\d+", reply_text):
+            # Not a request notification - silently ignore
+            # This allows the message to be processed by other handlers (e.g., /ask)
+            return
+
+        admin_id = str(update.message.from_user.id)
+        admin_name = update.message.from_user.username or "Admin"
 
         text = (update.message.text or "").strip()
         text_lower = text.lower()
@@ -121,12 +129,14 @@ async def handle_admin_response(  # noqa: C901
                 selected_user_id = int(text)
                 action = "approve"  # Numeric selection always means approve
                 logger.info("User ID selection detected: %d", selected_user_id)
-            elif "approve" in text_lower:
+            elif "approve" in text_lower or text_lower in ("да", "yes", "ok", "+"):
                 action = "approve"
-            elif "reject" in text_lower:
+            elif "reject" in text_lower or text_lower in ("нет", "no", "-"):
                 action = "reject"
             else:
-                logger.warning("Received non-action admin message from %s: %s", admin_id, text)
+                # Reply to request notification but not a valid action
+                # Show helpful error since user clearly intended to interact with request
+                logger.debug("Non-action reply to request from %s: %s", admin_id, text)
                 try:
                     await update.message.reply_text(t("requests.reply_with_id_or_action"))
                 except Exception:
@@ -145,15 +155,13 @@ async def handle_admin_response(  # noqa: C901
             return
 
         # Parse request id from the replied-to message
-        # Handle both HTML format with tags (<b>Request #{id}</b>) and plain text format (Request #{id}:)
-        # Support both English and Russian localized notification messages
-        reply_text = update.message.reply_to_message.text or ""
+        # We already validated that reply_text contains #<id> pattern above
         try:
-            # Use regex to find #<id> in any format (HTML or plain text)
             match = re.search(r"#(\d+)", reply_text)
             if match:
                 request_id = int(match.group(1))
             else:
+                # Should not happen since we checked the pattern above
                 raise ValueError("Message format not recognized - could not find '#<id>'")
         except (ValueError, IndexError) as e:
             logger.warning("Could not parse request ID from message: %s (error: %s)", reply_text, e)

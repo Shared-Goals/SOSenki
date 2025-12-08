@@ -128,7 +128,8 @@ class TestGetBalanceTool:
                 assert result_dict["user_id"] == 1
                 assert result_dict["account_id"] == 1
                 assert result_dict["balance"] == 1000.50
-                assert result_dict["currency"] == "USD"
+                # Currency comes from locale_service.CURRENCY (set via LOCALE env)
+                assert result_dict["currency"] == "RUB"
 
     @pytest.mark.asyncio
     async def test_get_balance_exception_handling(self):

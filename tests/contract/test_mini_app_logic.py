@@ -142,11 +142,12 @@ class TestMiniAppDataTypes:
 
     def test_account_response_structure(self):
         """Test account response has correct structure."""
+        # Note: This is a contract/structure test, currency value varies by locale
         account_response = {
             "id": 1,
             "account_number": "ACC-001",
             "balance": 1234.56,
-            "currency": "USD",
+            "currency": "RUB",  # Derived from LOCALE env
         }
         assert isinstance(account_response["balance"], float)
 

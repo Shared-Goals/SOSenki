@@ -354,7 +354,11 @@ class TestAdminResponseErrorCases:
         await handle_admin_response(update, context)
 
     async def test_admin_response_without_reply_to_message(self, mock_admin_user, mock_chat):
-        """Test response without replying to a message."""
+        """Test response without replying to a message - should be silently ignored.
+
+        Non-reply messages are not handled by admin_requests handler to allow
+        them to be processed by other handlers (e.g., /ask LLM handler).
+        """
         update = MagicMock(spec=Update)
         update.message = MagicMock(spec=Message)
         update.message.from_user = mock_admin_user
@@ -367,7 +371,33 @@ class TestAdminResponseErrorCases:
 
         await handle_admin_response(update, context)
 
-        update.message.reply_text.assert_called_once()
+        # Handler should silently return without sending any message
+        update.message.reply_text.assert_not_called()
+
+    async def test_admin_response_to_non_request_message_ignored(self, mock_admin_user, mock_chat):
+        """Test replying to a non-request message is silently ignored.
+
+        Only replies to request notifications (containing '#<id>') should be handled.
+        Other replies are ignored to allow /ask handler to process them.
+        """
+        # Reply to a regular message (not a request notification)
+        original_message = MagicMock(spec=Message)
+        original_message.text = "Hello, how can I help you?"  # No #id pattern
+
+        update = MagicMock(spec=Update)
+        update.message = MagicMock(spec=Message)
+        update.message.from_user = mock_admin_user
+        update.message.chat = mock_chat
+        update.message.text = "What is my balance?"
+        update.message.reply_to_message = original_message
+        update.message.reply_text = AsyncMock()
+
+        context = MagicMock(spec=ContextTypes.DEFAULT_TYPE)
+
+        await handle_admin_response(update, context)
+
+        # Handler should silently return without sending any message
+        update.message.reply_text.assert_not_called()
 
     async def test_admin_response_invalid_action(self, mock_admin_user, mock_chat):
         """Test response with invalid action."""

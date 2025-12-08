@@ -15,7 +15,9 @@ from typing import Any
 
 from ollama import AsyncClient
 
+from src.prompts import ADMIN_SYSTEM_PROMPT, USER_SYSTEM_PROMPT
 from src.services.balance_service import BalanceCalculationService
+from src.services.locale_service import CURRENCY, format_local_datetime
 from src.services.period_service import AsyncServicePeriodService
 
 logger = logging.getLogger(__name__)
@@ -28,32 +30,10 @@ logger = logging.getLogger(__name__)
 # Default model if OLLAMA_MODEL not set
 DEFAULT_MODEL = "qwen2.5:latest"
 
-# System prompt for the assistant
-SYSTEM_PROMPT = """You are SOSenki Assistant, a helpful AI for managing property expenses and bills.
 
-You help users with:
-- Checking their account balance
-- Viewing their bills and payment history
-- Getting information about service periods
-
-When users ask about their balance, bills, or periods, use the available tools to fetch real data.
-Always respond in the same language the user writes in.
-Be concise and helpful. Format currency amounts nicely.
-If a tool returns an error, explain it clearly to the user.
-"""
-
-ADMIN_SYSTEM_PROMPT = """You are SOSenki Assistant with ADMIN access. You can help with:
-
-- All user operations (balance, bills, periods)
-- Creating new service periods (admin-only)
-
-When asked to create a service period, gather the required information:
-- Period name (e.g., "September 2025 - January 2026")
-- Start date (YYYY-MM-DD format)
-- End date (YYYY-MM-DD format)
-
-Always confirm before creating periods. Use tools to perform actual operations.
-"""
+# Prompts are loaded from external .prompt.md files via src.prompts module
+# Re-export for backward compatibility (deprecated - use src.prompts directly)
+SYSTEM_PROMPT = USER_SYSTEM_PROMPT
 
 
 # ============================================================================
@@ -240,8 +220,10 @@ async def _execute_get_balance(ctx: ToolContext) -> str:
             "user_id": ctx.user_id,
             "user_name": user.name,
             "balance": float(balance),
-            "currency": "USD",
-            "last_updated": account.updated_at.isoformat() if account.updated_at else None,
+            "currency": CURRENCY,
+            "last_updated": (
+                format_local_datetime(account.updated_at) if account.updated_at else None
+            ),
         }
     )
 
@@ -365,7 +347,7 @@ class OllamaService:
 
     def _get_system_prompt(self) -> str:
         """Get system prompt based on user role."""
-        return ADMIN_SYSTEM_PROMPT if self.is_admin else SYSTEM_PROMPT
+        return ADMIN_SYSTEM_PROMPT if self.is_admin else USER_SYSTEM_PROMPT
 
     async def chat(self, user_message: str, max_tool_calls: int = 5) -> str:
         """Process a user message with optional tool calling.

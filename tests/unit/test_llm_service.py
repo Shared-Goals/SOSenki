@@ -103,7 +103,8 @@ class TestToolExecution:
             assert data["user_id"] == 1
             assert data["user_name"] == "Test User"
             assert data["balance"] == 100.50
-            assert data["currency"] == "USD"
+            # Currency comes from locale_service.CURRENCY (set via LOCALE env)
+            assert data["currency"] == "RUB"
 
     @pytest.mark.asyncio
     async def test_execute_list_bills_success(self):

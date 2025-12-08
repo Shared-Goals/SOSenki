@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 from sqlalchemy.orm import sessionmaker
 
 from src.services.balance_service import BalanceCalculationService
+from src.services.locale_service import CURRENCY, format_local_datetime
 from src.services.period_service import AsyncServicePeriodService
 
 logger = logging.getLogger(__name__)
@@ -141,8 +142,12 @@ async def get_balance(user_id: int) -> str:
                     "user_id": user_id,
                     "account_id": account.id,
                     "balance": float(balance),
-                    "currency": "USD",
-                    "last_updated": account.updated_at.isoformat() if account.updated_at else None,
+                    "currency": CURRENCY,
+                    "last_updated": (
+                        format_local_datetime(account.updated_at)
+                        if account.updated_at
+                        else None
+                    ),
                 }
             )
     except Exception as e:
@@ -185,6 +190,7 @@ async def list_bills(user_id: int, limit: int = 10) -> str:
                 {
                     "user_id": user_id,
                     "account_id": account.id,
+                    "currency": CURRENCY,
                     "bills": [
                         {
                             "bill_id": bill.bill_id,
