@@ -11,10 +11,13 @@ if [ -f ".env" ]; then
   set +a
 fi
 
+# Use PORT from environment or default to 8000
+PORT="${PORT:-8000}"
+
 # Start ngrok if not already running
-if ! pgrep -f 'ngrok http 8000' > /dev/null; then
-  echo "Starting ngrok tunnel on port 8000..."
-  ngrok http 8000 > /dev/null 2>&1 &
+if ! pgrep -f "ngrok http $PORT" > /dev/null; then
+  echo "Starting ngrok tunnel on port $PORT..."
+  ngrok http $PORT > /dev/null 2>&1 &
   sleep 2
 fi
 

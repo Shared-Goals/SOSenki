@@ -32,8 +32,8 @@ class TestMakefileIntegration:
         assert "make seed" in output, "Seed target not found in help"
         assert "seed" in output.lower(), "Seed documentation missing"
 
-    def test_make_help_mentions_offline_requirement(self):
-        """Test that `make help` mentions offline requirement (T037)."""
+    def test_make_help_mentions_database_section(self):
+        """Test that `make help` includes database management section (T037)."""
         project_root = self.get_project_root()
         result = subprocess.run(
             ["make", "help"],
@@ -45,15 +45,11 @@ class TestMakefileIntegration:
         assert result.returncode == 0
         output = result.stdout
 
-        # Verify offline requirement is mentioned
-        offline_mention = (
-            "offline" in output.lower()
-            or "offline only" in output.lower()
-            or "must be offline" in output.lower()
-        )
-        assert offline_mention, (
-            "Offline requirement not mentioned in help. "
-            "User must understand app must be stopped before seeding."
+        # Verify database section is present
+        has_database_section = "Database:" in output or "database" in output.lower()
+        assert has_database_section, (
+            "Database section not found in help. "
+            "User must see database-related targets."
         )
 
     def test_make_seed_target_exists_and_is_callable(self):
@@ -142,8 +138,8 @@ class TestMakefileIntegration:
         # Should have echo statements for user feedback
         assert "@echo" in seed_section, "seed target should have @echo statements for user feedback"
 
-    def test_help_target_includes_seed_section(self):
-        """Test that help target includes dedicated section for seeding (T039)."""
+    def test_help_target_includes_database_section(self):
+        """Test that help target includes database section with seed target (T039)."""
         project_root = self.get_project_root()
         result = subprocess.run(
             ["make", "help"],
@@ -155,14 +151,11 @@ class TestMakefileIntegration:
         assert result.returncode == 0
         output = result.stdout
 
-        # Check for dedicated "Database Seeding" section
-        has_seeding_section = (
-            "Database Seeding" in output
-            or "database seeding" in output.lower()
-            or "Seeding" in output
-        )
-        assert has_seeding_section, (
-            "help output should include a dedicated section for database seeding"
+        # Check for database section with seed command
+        has_database_section = "Database:" in output or "database" in output.lower()
+        has_seed_command = "make seed" in output
+        assert has_database_section and has_seed_command, (
+            "help output should include database section with seed command"
         )
 
     def test_makefile_lint_target_exists(self):

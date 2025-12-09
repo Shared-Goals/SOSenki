@@ -129,6 +129,9 @@ def main():
     """Main entry point."""
     import argparse
 
+    # Get default port from environment or use 8000
+    default_port = int(os.getenv("PORT", "8000"))
+
     parser = argparse.ArgumentParser(description="SOSenki Bot")
     parser.add_argument(
         "--mode",
@@ -137,7 +140,7 @@ def main():
         help="Run mode (webhook only - polling not supported)",
     )
     parser.add_argument("--host", default="0.0.0.0", help="Host to bind to")
-    parser.add_argument("--port", type=int, default=8000, help="Port to bind to")
+    parser.add_argument("--port", type=int, default=default_port, help="Port to bind to")
 
     args = parser.parse_args()
 

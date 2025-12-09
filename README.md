@@ -8,75 +8,71 @@
 
 A lightweight, self-hosted solution for 20-100 users managing shared property expenses. Built with YAGNI/KISS principles: SQLite database, Python/FastAPI backend, Telegram as the only UI.
 
-### Current State (v1)
+### Prerequisites
 
-```text
-┌─────────────────────────────────────────────────────────────────┐
-│                    Telegram Bot + Mini App                       │
-│  Commands: /start, /request, /bills, /periods                   │
-│  Mini App: Visual bills/transactions for owners                 │
-│  Admin: Create periods, generate electricity bills              │
-└─────────────────────────────────────────────────────────────────┘
-                              │
-                              ▼
-┌─────────────────────────────────────────────────────────────────┐
-│                    FastAPI Backend                               │
-│  Webhook endpoint, Mini App API, Static files                   │
-└─────────────────────────────────────────────────────────────────┘
-                              │
-                              ▼
-┌─────────────────────────────────────────────────────────────────┐
-│                    SQLite Database                               │
-│  Users, Properties, Bills, Transactions, Service Periods        │
-└─────────────────────────────────────────────────────────────────┘
-```
+Install before running `make install`:
 
-### Target State (v2) — MCP + AI Agent
+- [uv](https://docs.astral.sh/uv/) — `curl -LsSf https://astral.sh/uv/install.sh | sh`
+- [Ollama](https://ollama.com/) — `curl -fsSL https://ollama.com/install.sh | sh`
+- [Caddy](https://caddyserver.com/) — `apt install caddy`
 
-Replace manual admin commands with natural language interface. Users query data conversationally; admins manage entities through AI agent with confirmation prompts.
+### Configuration
 
-```text
-┌─────────────────────────────────────────────────────────────────┐
-│                    Telegram Bot (enhanced)                       │
-│  Existing commands + /ask for natural language queries          │
-│  Agent routes: user queries → read tools, admin → write tools   │
-└─────────────────────────────────────────────────────────────────┘
-                              │
-                              ▼
-┌─────────────────────────────────────────────────────────────────┐
-│                    AI Agent (Ollama + llama3.2:3b)               │
-│  - Receives natural language from bot                            │
-│  - Calls LLM with MCP tools (function calling)                  │
-│  - Role-based access: user=read, admin=read+write               │
-│  - Confirmation prompts for write operations                    │
-└─────────────────────────────────────────────────────────────────┘
-                              │
-                              ▼
-┌─────────────────────────────────────────────────────────────────┐
-│                    MCP Server (FastAPI router)                   │
-│  Query tools: get_balance, list_bills, get_period_info          │
-│  Admin tools: create_period, generate_bills, update_reading     │
-│  Auth: telegram_id → user role verification                     │
-└─────────────────────────────────────────────────────────────────┘
-                              │
-                              ▼
-┌─────────────────────────────────────────────────────────────────┐
-│                    SQLite Database (unchanged)                   │
-└─────────────────────────────────────────────────────────────────┘
-```
+Edit `.env` before running `make install`:
+
+| Variable | Description |
+|----------|-------------|
+| `TELEGRAM_BOT_TOKEN` | Your bot token from @BotFather |
+| `DOMAIN` | Your domain (e.g., `sosenki.sharedgoals.ru`) |
+| `PORT` | Server port (default: `8000`). For router: keep 8000, forward external 80/443 to internal 8000 |
+| `OLLAMA_MODEL` | LLM model (default: `qwen2.5:latest`) |
+
+`make install` derives `WEBHOOK_URL` and `MINI_APP_URL` from `DOMAIN` automatically.
 
 ## Deployment
 
-**Target platform:** Home server (AIBOX-3588, Ubuntu, 16GB RAM)
+**Target platform:** Linux server (Ubuntu 22.04+, 4GB+ RAM)
 
-- **SSL termination:** Caddy with auto Let's Encrypt
-- **Process manager:** systemd
-- **LLM:** Ollama with llama3.2:3b (~2GB RAM)
+```bash
+git clone https://github.com/Shared-Goals/SOSenki.git
+cd SOSenki
+cp .env.example .env    # Configure: TELEGRAM_BOT_TOKEN, DOMAIN, OLLAMA_MODEL, PORT
+sudo make install       # Full setup: deps + Ollama + systemd + Caddy
+sudo systemctl start sosenki
+```
+
+### Network Configuration (Router Setup)
+
+If running behind a router with static IP:
+
+1. **Port Forwarding** (in router admin panel):
+   - Forward external port `80` (HTTP) → internal server port `8000`
+   - Forward external port `443` (HTTPS) → internal server port `8000`
+   - (Caddy handles SSL termination automatically)
+
+2. **Environment Variables**:
+
+   ```env
+   DOMAIN=sosenki.sharedgoals.ru
+   PORT=8000
+   ```
+
+3. **Verify Deployment**:
+
+   ```bash
+   # Check internal connectivity
+   curl http://localhost:8000/health
+   # {\"status\":\"ok\"}
+
+   # Check external connectivity
+   curl https://sosenki.sharedgoals.ru/health
+   # {\"status\":\"ok\"}
+   ```
 
 ## Development
 
 ```bash
-make install      # Install dependencies via uv
+make sync         # Install Python dependencies via uv
 make serve        # Run bot + mini app (ngrok tunnel for dev)
 make test         # Run all tests
 make coverage     # Generate coverage report
@@ -87,4 +83,3 @@ See `make help` for full command reference.
 ## Documentation
 
 Auto-generated documentation: [DeepWiki](https://deepwiki.com/Shared-Goals/SOSenki)
-

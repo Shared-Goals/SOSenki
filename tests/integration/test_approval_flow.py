@@ -93,8 +93,11 @@ class TestApprovalFlow:
 
             def de_json_side_effect(data, bot_instance):
                 """Convert dict to Update object."""
+                update = MagicMock(spec=Update)
+                update.message = None
+                update.callback_query = None
+
                 if data and "message" in data:
-                    update = MagicMock(spec=Update)
                     update.message = MagicMock()
                     update.message.text = data["message"]["text"]
                     update.message.from_user = MagicMock()
@@ -119,8 +122,23 @@ class TestApprovalFlow:
                         rtm = MagicMock()
                         rtm.text = data["message"]["reply_to_message"].get("text", "")
                         update.message.reply_to_message = rtm
-                    return update
-                return None
+
+                if data and "callback_query" in data:
+                    cq_data = data["callback_query"]
+                    update.callback_query = MagicMock()
+                    update.callback_query.id = cq_data.get("id", "callback_123")
+                    update.callback_query.data = cq_data.get("data", "")
+                    update.callback_query.from_user = MagicMock()
+                    update.callback_query.from_user.id = cq_data["from"]["id"]
+                    update.callback_query.from_user.first_name = cq_data["from"].get(
+                        "first_name", "Admin"
+                    )
+                    update.callback_query.answer = AsyncMock()
+                    update.callback_query.edit_message_text = AsyncMock()
+
+                if update.message is None and update.callback_query is None:
+                    return None
+                return update
 
             mock_de_json.side_effect = de_json_side_effect
 
@@ -130,17 +148,21 @@ class TestApprovalFlow:
 
             async def process_update_impl(update):
                 """Process update through the handler."""
-                if update.message and update.message.text:
-                    from src.bot.handlers import handle_admin_response, handle_request_command
+                from src.bot.handlers import handle_admin_response, handle_request_command
+                from src.bot.handlers.admin_requests import handle_admin_callback
 
-                    ctx = MagicMock()
-                    ctx.application = mock_app
-                    ctx.bot_data = {}
+                ctx = MagicMock()
+                ctx.application = mock_app
+                ctx.bot_data = {}
 
-                    # Route to appropriate handler
+                # Route to callback handler for callback queries
+                if update.callback_query:
+                    await handle_admin_callback(update, ctx)
+                # Route to appropriate message handler
+                elif update.message and update.message.text:
                     if update.message.text.startswith("/request"):
                         await handle_request_command(update, ctx)
-                    elif "approve" in update.message.text.lower():
+                    else:
                         await handle_admin_response(update, ctx)
 
             mock_app.process_update.side_effect = process_update_impl
@@ -202,17 +224,18 @@ class TestApprovalFlow:
         # Reset mock to track approval call separately
         mock_bot.reset_mock()
 
-        # Step 2: Admin approves the request
+        # Step 2: Admin approves the request via callback button
         admin_update = {
             "update_id": 2,
-            "message": {
-                "message_id": 2,
-                "date": int(datetime.now(timezone.utc).timestamp()),
-                "chat": {"id": admin_id, "type": "private"},
+            "callback_query": {
+                "id": "callback_approval_123",
                 "from": {"id": admin_id, "is_bot": False, "first_name": admin_name},
-                "text": "Approve",
-                "reply_to_message": {
+                "chat_instance": "test_instance",
+                "data": f"approve:{request_id}",
+                "message": {
                     "message_id": 50,
+                    "date": int(datetime.now(timezone.utc).timestamp()),
+                    "chat": {"id": admin_id, "type": "private"},
                     "from": {"id": 777, "is_bot": True},
                     "text": f"<b>Request #{request_id}</b>\n\n<a href='tg://user?id={client_id}'>{client_name}</a> (ID: {client_id})\n\n<b>Message:</b>\n{request_message}\n\nReply with 'Approve' or 'Reject' or use the buttons below",
                 },
@@ -266,7 +289,7 @@ class TestApprovalFlow:
         """Test approval when request doesn't exist.
 
         Verifies:
-        1. Admin sends "Approve" reply
+        1. Admin sends approval callback
         2. Request ID doesn't exist in database
         3. Admin receives error message
         4. No approval is recorded
@@ -274,17 +297,18 @@ class TestApprovalFlow:
         admin_id = 999888777
         admin_name = "Admin"
 
-        # Admin tries to approve non-existent request
+        # Admin tries to approve non-existent request via callback
         admin_update = {
             "update_id": 3,
-            "message": {
-                "message_id": 3,
-                "date": int(datetime.now(timezone.utc).timestamp()),
-                "chat": {"id": admin_id, "type": "private"},
+            "callback_query": {
+                "id": "callback_missing_123",
                 "from": {"id": admin_id, "is_bot": False, "first_name": admin_name},
-                "text": "Approve",
-                "reply_to_message": {
+                "chat_instance": "test_instance",
+                "data": "approve:99999",
+                "message": {
                     "message_id": 99,
+                    "date": int(datetime.now(timezone.utc).timestamp()),
+                    "chat": {"id": admin_id, "type": "private"},
                     "from": {"id": 777, "is_bot": True},
                     "text": "<b>Request #99999</b>\n\n<a href='tg://user?id=999999'>Unknown</a> (ID: 999999)\n\n<b>Message:</b>\nTest\n\nReply with 'Approve' or 'Reject' or use the buttons below",
                 },
@@ -345,14 +369,15 @@ class TestApprovalFlow:
 
         admin_update = {
             "update_id": 5,
-            "message": {
-                "message_id": 5,
-                "date": int(datetime.now(timezone.utc).timestamp()),
-                "chat": {"id": admin_id, "type": "private"},
+            "callback_query": {
+                "id": "callback_sla_123",
                 "from": {"id": admin_id, "is_bot": False, "first_name": "Admin"},
-                "text": "Approve",
-                "reply_to_message": {
+                "chat_instance": "test_instance",
+                "data": f"approve:{request_id}",
+                "message": {
                     "message_id": 50,
+                    "date": int(datetime.now(timezone.utc).timestamp()),
+                    "chat": {"id": admin_id, "type": "private"},
                     "from": {"id": 777, "is_bot": True},
                     "text": f"<b>Request #{request_id}</b>\n\n<a href='tg://user?id={client_id}'>User</a> (ID: {client_id})\n\n<b>Message:</b>\nTest\n\nReply with 'Approve' or 'Reject' or use the buttons below",
                 },
@@ -394,17 +419,18 @@ class TestApprovalFlow:
         finally:
             db.close()
 
-        # First approval
+        # First approval via callback
         admin_update_1 = {
             "update_id": 6,
-            "message": {
-                "message_id": 6,
-                "date": int(datetime.now(timezone.utc).timestamp()),
-                "chat": {"id": admin_id, "type": "private"},
+            "callback_query": {
+                "id": "callback_idem_1",
                 "from": {"id": admin_id, "is_bot": False, "first_name": "Admin"},
-                "text": "Approve",
-                "reply_to_message": {
+                "chat_instance": "test_instance",
+                "data": f"approve:{request_id}",
+                "message": {
                     "message_id": 50,
+                    "date": int(datetime.now(timezone.utc).timestamp()),
+                    "chat": {"id": admin_id, "type": "private"},
                     "from": {"id": 777, "is_bot": True},
                     "text": f"<b>Request #{request_id}</b>\n\n<a href='tg://user?id={client_id}'>User</a> (ID: {client_id})\n\n<b>Message:</b>\n{request_message}\n\nReply with 'Approve' or 'Reject' or use the buttons below",
                 },
@@ -422,18 +448,19 @@ class TestApprovalFlow:
         finally:
             db.close()
 
-        # Second approval attempt (idempotent)
+        # Second approval attempt via callback (idempotent)
         mock_bot.reset_mock()
         admin_update_2 = {
             "update_id": 7,
-            "message": {
-                "message_id": 7,
-                "date": int(datetime.now(timezone.utc).timestamp()),
-                "chat": {"id": admin_id, "type": "private"},
+            "callback_query": {
+                "id": "callback_idem_2",
                 "from": {"id": admin_id, "is_bot": False, "first_name": "Admin"},
-                "text": "Approve",
-                "reply_to_message": {
+                "chat_instance": "test_instance",
+                "data": f"approve:{request_id}",
+                "message": {
                     "message_id": 50,
+                    "date": int(datetime.now(timezone.utc).timestamp()),
+                    "chat": {"id": admin_id, "type": "private"},
                     "from": {"id": 777, "is_bot": True},
                     "text": f"Client Request: User (ID: {request_id})",
                 },

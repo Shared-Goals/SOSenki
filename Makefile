@@ -2,20 +2,16 @@
 # Roadmap (commit-based milestones)
 # ============================================================================
 #
+
 # TODO agent: Add role-based tool filtering
 #            - User tools: get_balance, list_bills, get_period_info (read-only)
 #            - Admin tools: + create_service_period (write)
 #            - Check user.is_administrator for admin tools
 # TODO agent: Add confirmation prompts for write operations
-# TODO agent: Register /ask handler in bot/__init__.py
-#
-# --- Deployment ---
-# TODO deploy: Create systemd service template (install-service)
-# TODO deploy: Create Caddy reverse proxy config (install-caddy)
-# TODO deploy: Dynamic DNS setup documentation (DuckDNS)
 #
 # --- Features ---
 # TODO feat: Add Open Mini App button to bot /setmenubutton
+# TODO feat: Limit /request as the only command for new users
 # TODO feat: New Electricity Service Period 1 Sept 2025 - 1 Jan 2026
 # TODO feat: Invest tracking module
 # TODO feat: Rules/Job descriptions module
@@ -44,13 +40,17 @@ export TELEGRAM_BOT_NAME
 export TELEGRAM_MINI_APP_ID
 export ENV
 
-.PHONY: help seed test lint format install serve db-reset backup restore deploy-check dead-code coverage coverage-seeding check-i18n clean
+.PHONY: help seed test lint format sync install preflight serve db-reset backup restore dead-code coverage coverage-seeding check-i18n clean
 
 help:
-	@echo "SOSenki Development Commands"
+	@echo "SOSenki Commands"
 	@echo ""
-	@echo "  make help              Show this help message"
-	@echo "  make install           Install dependencies via uv"
+	@echo "Production Deployment (Linux server):"
+	@echo "  make install           Full production setup (run with sudo)"
+	@echo ""
+	@echo "Development:"
+	@echo "  make sync              Install Python dependencies via uv"
+	@echo "  make serve             Run bot + mini app with webhook (starts ngrok if needed)"
 	@echo "  make test              Run all tests (contract, integration, unit)"
 	@echo "  make test-seeding      Run seeding tests only"
 	@echo "  make lint              Check code style with ruff"
@@ -59,25 +59,144 @@ help:
 	@echo "  make dead-code         Analyze dead code with vulture and custom scripts"
 	@echo "  make coverage          Generate coverage report for src/ tests"
 	@echo ""
-	@echo "Database Seeding & Management:"
-	@echo "  make seed              Seed database from Google Sheets (OFFLINE ONLY)"
-	@echo "                         Idempotent: running twice = identical database state"
-	@echo "  make db-reset          Drop and recreate database (OFFLINE ONLY)"
-	@echo "                         Deletes all data and recreates fresh schema"
-	@echo "  make backup            Create timestamped database backup (keeps last 30)"
-	@echo "  make restore           Restore from latest backup (or BACKUP=filename)"
-	@echo ""
-	@echo "Deployment:"
-	@echo "  make deploy-check      Validate environment, tests, and database for deployment"
-	@echo ""
-	@echo "Local Development:"
-	@echo "  make serve             Run bot + mini app with webhook (starts ngrok if needed)"
+	@echo "Database:"
+	@echo "  make seed              Seed database from Google Sheets (dev only)"
+	@echo "  make db-reset          Drop and recreate database (dev only)"
+	@echo "  make backup            Create timestamped database backup (prod only)"
+	@echo "  make restore           Restore from latest backup (prod only)"
 	@echo ""
 	@echo "Maintenance:"
 	@echo "  make clean             Remove generated artifacts (coverage, cache, logs)"
 	@echo ""
 
+# ============================================================================
+# Production Deployment
+# ============================================================================
+
+# Preflight checks (used by install and can be run standalone)
+# Checks differ based on ENV: dev or prod
+preflight:
+	@echo "====== SOSenki Preflight Checks (ENV=$(ENV)) ======"
+	@echo ""
+	@echo "Step 1: Check uv installed..."
+	@command -v uv >/dev/null 2>&1 || \
+		(echo "❌ uv not found. Install: curl -LsSf https://astral.sh/uv/install.sh | sh"; exit 1)
+	@echo "✅ uv installed"
+	@echo ""
+	@echo "Step 2: Check .env exists..."
+	@test -f .env || (echo "❌ .env not found. Copy from .env.example and configure."; exit 1)
+	@echo "✅ .env exists"
+	@echo ""
+	@echo "Step 3: Validate environment variables..."
+	@if [ -z "$(TELEGRAM_BOT_TOKEN)" ]; then echo "❌ TELEGRAM_BOT_TOKEN not set"; exit 1; fi
+	@if [ -z "$(TELEGRAM_BOT_NAME)" ]; then echo "❌ TELEGRAM_BOT_NAME not set"; exit 1; fi
+	@if [ -z "$(TELEGRAM_MINI_APP_ID)" ]; then echo "❌ TELEGRAM_MINI_APP_ID not set"; exit 1; fi
+	@if [ "$(ENV)" = "prod" ]; then \
+		DOMAIN=$$(grep -E '^DOMAIN=' .env 2>/dev/null | cut -d'=' -f2 | tr -d '"' | tr -d "'"); \
+		if [ -z "$$DOMAIN" ]; then echo "❌ DOMAIN not set (required for prod)"; exit 1; fi; \
+		echo "✅ DOMAIN: $$DOMAIN"; \
+	fi
+	@echo "✅ Environment variables validated"
+	@echo ""
+	@echo "Step 4: Check Ollama installed..."
+	@command -v ollama >/dev/null 2>&1 || \
+		(echo "❌ Ollama not found. Install: curl -fsSL https://ollama.com/install.sh | sh"; exit 1)
+	@echo "✅ Ollama installed"
+	@echo ""
+	@echo "Step 5: Installing Python dependencies..."
+	@uv sync
+	@echo "✅ Python dependencies installed"
+	@echo ""
+	@echo "Step 6: Pulling Ollama model..."
+	@MODEL=$$(grep -E '^OLLAMA_MODEL=' .env 2>/dev/null | cut -d'=' -f2 | tr -d '"' | tr -d "'"); \
+	if [ -z "$$MODEL" ]; then MODEL="qwen2.5:latest"; fi; \
+	echo "Model: $$MODEL"; \
+	ollama pull "$$MODEL"
+	@echo "✅ Ollama model ready"
+	@if [ "$(ENV)" = "prod" ]; then \
+		echo ""; \
+		echo "Step 7: Check Caddy installed (prod only)..."; \
+		command -v caddy >/dev/null 2>&1 || \
+			(echo "❌ Caddy not found. Install: apt install caddy"; exit 1); \
+		echo "✅ Caddy installed"; \
+		echo ""; \
+		echo "Step 8: Validate database (prod only)..."; \
+		if [ ! -f sosenki.db ]; then \
+			echo "❌ Database not found (sosenki.db). Run 'make restore' to restore from backup."; exit 1; \
+		fi; \
+		echo "✅ Database exists: sosenki.db"; \
+		echo ""; \
+		echo "Step 9: Verify Alembic migrations (prod only)..."; \
+		uv run alembic current > /dev/null 2>&1 || (echo "❌ Alembic migration check failed"; exit 1); \
+		echo "✅ Alembic migrations verified"; \
+		echo ""; \
+		echo "Step 10: Running test suite (prod only)..."; \
+		uv run pytest tests/ -q --tb=short > /tmp/preflight-tests.log 2>&1 || \
+			(echo "❌ Test suite failed. Details:"; tail -50 /tmp/preflight-tests.log; exit 1); \
+		echo "✅ All tests passed"; \
+	fi
+	@echo ""
+	@echo "====== Preflight Complete ======"
+
+# Full production installation
+# Step order:
+# 1. Run preflight manually: make preflight ENV=prod
+# 2. Run install: sudo make install
+#    - This installs systemd service and configures Caddy
+#    - Preflight must be run first to ensure uv sync and ollama pull are done
 install:
+	@echo ""
+	@echo "====== SOSenki Production Install ======"
+	@echo ""
+	@echo "Step 1/2: Installing systemd service (requires sudo)..."
+	@INSTALL_DIR=$$(pwd); \
+	OWNER=$$(stat -c '%U' . 2>/dev/null || stat -f '%Su' .); \
+	sed -e "s|\$${INSTALL_DIR}|$$INSTALL_DIR|g" \
+	    -e "s|\$${USER}|$$OWNER|g" \
+	    deploy/sosenki.service.template > /tmp/sosenki.service; \
+	sudo cp /tmp/sosenki.service /etc/systemd/system/sosenki.service; \
+	sudo systemctl daemon-reload; \
+	sudo systemctl enable sosenki
+	@echo "✅ Systemd service installed"
+	@echo ""
+	@echo "Step 2/2: Configuring domain and URLs (requires sudo)..."
+	@DOMAIN=$$(grep -E '^DOMAIN=' .env 2>/dev/null | cut -d'=' -f2 | tr -d '"' | tr -d "'"); \
+	if [ -z "$$DOMAIN" ]; then \
+		echo "❌ DOMAIN not set in .env. Required for Caddy and webhook URLs."; \
+		exit 1; \
+	fi; \
+	echo "Domain: $$DOMAIN"; \
+	WEBHOOK_URL="https://$$DOMAIN/webhook/telegram"; \
+	MINI_APP_URL="https://$$DOMAIN/mini-app/"; \
+	if ! grep -q '^WEBHOOK_URL=' .env 2>/dev/null; then \
+		echo "WEBHOOK_URL=$$WEBHOOK_URL" >> .env; \
+		echo "  Added WEBHOOK_URL to .env"; \
+	fi; \
+	if ! grep -q '^MINI_APP_URL=' .env 2>/dev/null; then \
+		echo "MINI_APP_URL=$$MINI_APP_URL" >> .env; \
+		echo "  Added MINI_APP_URL to .env"; \
+	fi; \
+	sed -e "s|\$${DOMAIN}|$$DOMAIN|g" deploy/Caddyfile.template > /tmp/sosenki.caddy; \
+	sudo mkdir -p /etc/caddy; \
+	sudo cp /tmp/sosenki.caddy /etc/caddy/Caddyfile; \
+	sudo systemctl reload caddy 2>/dev/null || sudo systemctl restart caddy
+	@echo "✅ Caddy configured for $$DOMAIN"
+	@echo ""
+	@echo "====== Installation Complete ======"
+	@echo ""
+	@echo "Start the service:"
+	@echo "  sudo systemctl start sosenki"
+	@echo ""
+	@echo "View logs:"
+	@echo "  sudo journalctl -u sosenki -f"
+	@echo ""
+
+# ============================================================================
+# Development Targets
+# ============================================================================
+
+# Install Python dependencies (dev)
+sync:
 	uv sync
 
 test:
@@ -166,7 +285,7 @@ coverage:
 
 # Run bot + mini app in webhook mode with ngrok tunnel
 # Automatically starts Ollama (if not running), ngrok tunnel, and loads environment variables (dynamic + static from .env)
-# Kills any existing process on port 8000 if address is already in use
+# Kills any existing process on configured port if address is already in use
 serve:
 	@echo "🔍 Checking Ollama service..."
 	@if ! pgrep -f "ollama serve" > /dev/null; then \
@@ -176,7 +295,7 @@ serve:
 	else \
 		echo "✅ Ollama is running"; \
 	fi
-	@PORT=8000; \
+	@PORT=$$(grep '^PORT=' .env 2>/dev/null | cut -d'=' -f2 || echo "8000"); \
 	if lsof -Pi :$$PORT -sTCP:LISTEN -t >/dev/null 2>&1; then \
 		echo "⚠️  Port $$PORT is already in use. Killing existing process..."; \
 		PID=$$(lsof -t -i :$$PORT); \
@@ -229,7 +348,7 @@ backup:
 	cd backups && ls -t *.db 2>/dev/null | tail -n +31 | xargs -r rm -v; \
 	echo ""; \
 	echo "Current backups:"; \
-	cd backups && ls -lht *.db 2>/dev/null | head -5 || echo "  (none)"
+	ls -lht *.db 2>/dev/null | head -5 || echo "  (none)"
 
 # Restore database from backup (prod only)
 # Usage: make restore              (restores latest)\n#        make restore BACKUP=backups/sosenki-20251205-120000.db
@@ -259,86 +378,5 @@ restore:
 		echo "Cancelled."; \
 	fi
 
-# Pre-deployment validation checklist
-# Validates environment configuration, code quality, database readiness, and test suite
-# Must pass before deploying to production (systemd/caddy)
-# Fail-fast: stops on first error
-deploy-check:
-	@echo "====== SOSenki Pre-Deployment Validation ======"
-	@echo ""
-	@echo "Step 1: Verify environment is production..."
-	@if [ "$(ENV)" != "prod" ]; then \
-		echo "❌ deploy-check requires ENV=prod. Set ENV=prod in .env or run: ENV=prod make deploy-check"; exit 1; fi
-	@echo "✅ Environment: production (ENV=prod)"
-	@echo ""
-	@echo "Step 2: Validate required environment variables..."
-	@if [ -z "$(DATABASE_URL)" ]; then \
-		echo "❌ DATABASE_URL not set"; exit 1; fi
-	@if [ -z "$(TELEGRAM_BOT_TOKEN)" ]; then \
-		echo "❌ TELEGRAM_BOT_TOKEN not set"; exit 1; fi
-	@if [ -z "$(TELEGRAM_BOT_NAME)" ]; then \
-		echo "❌ TELEGRAM_BOT_NAME not set"; exit 1; fi
-	@if [ -z "$(TELEGRAM_MINI_APP_ID)" ]; then \
-		echo "❌ TELEGRAM_MINI_APP_ID not set"; exit 1; fi
-	@if [ -z "$(MINI_APP_URL)" ] && [ -z "$(shell grep -h '^MINI_APP_URL' .env 2>/dev/null)" ]; then \
-		echo "❌ MINI_APP_URL not set (required for application startup)"; exit 1; fi
-	@if [ -z "$(WEBHOOK_URL)" ] && [ -z "$(shell grep -h '^WEBHOOK_URL' .env 2>/dev/null)" ]; then \
-		echo "❌ WEBHOOK_URL not set (required for Telegram webhook)"; exit 1; fi
-	@if [ -z "$(PHOTO_GALLERY_URL)" ] && [ -z "$(shell grep -h '^PHOTO_GALLERY_URL' .env 2>/dev/null)" ]; then \
-		echo "❌ PHOTO_GALLERY_URL not set"; exit 1; fi
-	@if [ -z "$(STAKEHOLDER_SHARES_URL)" ] && [ -z "$(shell grep -h '^STAKEHOLDER_SHARES_URL' .env 2>/dev/null)" ]; then \
-		echo "❌ STAKEHOLDER_SHARES_URL not set"; exit 1; fi
-	@echo "✅ All required environment variables are set"
-	@echo ""
-	@echo "Step 3: Validate database..."
-	@if [ ! -f sosenki.db ]; then \
-		echo "❌ Database not found (sosenki.db). Run 'make restore' to restore from backup or manually copy sosenki.dev.db to sosenki.db."; exit 1; fi
-	@echo "✅ Database exists: sosenki.db"
-	@echo ""
-	@echo "Step 4: Verify Alembic migrations..."
-	@uv run alembic current > /dev/null 2>&1 || (echo "❌ Alembic migration check failed"; exit 1)
-	@echo "✅ Alembic migrations verified"
-	@echo ""
-	@echo "Step 5: Code quality checks..."
-	@echo "  - Running linter (ruff)..."
-	@uv run ruff check . > /dev/null 2>&1 || (echo "❌ Linter check failed"; exit 1)
-	@echo "  ✅ Linter passed"
-	@echo "  - Checking i18n completeness..."
-	@uv run python scripts/check_translations.py > /dev/null 2>&1 || (echo "❌ i18n check failed"; exit 1)
-	@echo "  ✅ i18n check passed"
-	@echo ""
-	@echo "Step 6: Running full test suite (unit, contract, integration)..."
-	@uv run pytest tests/ -v --tb=short > /tmp/deploy-check-tests.log 2>&1 || \
-		(echo "❌ Test suite failed. Details:"; tail -100 /tmp/deploy-check-tests.log; exit 1)
-	@echo "✅ All tests passed (463 tests)"
-	@echo ""
-	@echo "Step 7: Coverage validation (minimum 80%)..."
-	@uv run pytest tests/ --cov=src --cov-report=term-missing -q > /tmp/deploy-check-cov.log 2>&1
-	@COVERAGE=$$(tail -1 /tmp/deploy-check-cov.log | grep -o '[0-9]\+%' | tr -d '%'); \
-	if [ -z "$$COVERAGE" ]; then COVERAGE=$$(grep 'TOTAL' /tmp/deploy-check-cov.log | grep -o '[0-9]\+%' | tail -1 | tr -d '%'); fi; \
-	if [ -n "$$COVERAGE" ] && [ "$$COVERAGE" -lt 80 ]; then \
-		echo "❌ Coverage below 80% threshold ($$COVERAGE%). Details:"; cat /tmp/deploy-check-cov.log; exit 1; fi
-	@tail -5 /tmp/deploy-check-cov.log
-	@echo "✅ Coverage threshold met (≥80%)"
-	@echo ""
-	@echo "====== Pre-Deployment Validation Summary ======"
-	@echo "✅ Environment configuration: valid"
-	@echo "✅ Database: ready (sosenki.db)"
-	@echo "✅ Code quality: passed"
-	@echo "✅ Test suite: passed (463 tests)"
-	@echo "✅ Coverage: ≥80%"
-	@echo ""
-	@LATEST_BACKUP=$$(ls -t backups/*.db 2>/dev/null | head -1); \
-	if [ -n "$$LATEST_BACKUP" ]; then \
-		echo "Latest backup: $$LATEST_BACKUP"; \
-	else \
-		echo "⚠ No backups found. Create one with: make backup"; \
-	fi
-	@echo ""
-	@echo "✅ READY FOR DEPLOYMENT"
-	@echo "Next steps:"
-	@echo "  1. make backup          (create pre-deploy backup)"
-	@echo "  2. make install-service (create systemd service)"
-	@echo "  3. make install-caddy   (configure reverse proxy)"
-	@echo ""
+
 

@@ -120,7 +120,6 @@ async def handle_admin_response(  # noqa: C901
         admin_name = update.message.from_user.username or "Admin"
 
         text = (update.message.text or "").strip()
-        text_lower = text.lower()
 
         # Check if input is a number (user ID selection)
         selected_user_id = None
@@ -129,10 +128,6 @@ async def handle_admin_response(  # noqa: C901
                 selected_user_id = int(text)
                 action = "approve"  # Numeric selection always means approve
                 logger.info("User ID selection detected: %d", selected_user_id)
-            elif "approve" in text_lower or text_lower in ("да", "yes", "ok", "+"):
-                action = "approve"
-            elif "reject" in text_lower or text_lower in ("нет", "no", "-"):
-                action = "reject"
             else:
                 # Reply to request notification but not a valid action
                 # Show helpful error since user clearly intended to interact with request

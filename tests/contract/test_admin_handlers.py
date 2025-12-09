@@ -85,8 +85,11 @@ def client(mock_bot):
 
         def de_json_side_effect(data, bot_instance):
             """Convert dict to Update object."""
+            update = MagicMock()
+            update.message = None
+            update.callback_query = None
+
             if data and "message" in data:
-                update = MagicMock()
                 update.message = MagicMock()
                 update.message.text = data["message"]["text"]
                 update.message.from_user = MagicMock()
@@ -105,8 +108,23 @@ def client(mock_bot):
                 update.message.chat.id = data["message"]["from"]["id"]
                 update.message.chat.type = data["message"].get("chat", {}).get("type", "private")
                 update.message.reply_text = AsyncMock()
-                return update
-            return None
+
+            if data and "callback_query" in data:
+                cq_data = data["callback_query"]
+                update.callback_query = MagicMock()
+                update.callback_query.id = cq_data.get("id", "callback_123")
+                update.callback_query.data = cq_data.get("data", "")
+                update.callback_query.from_user = MagicMock()
+                update.callback_query.from_user.id = cq_data["from"]["id"]
+                update.callback_query.from_user.first_name = cq_data["from"].get(
+                    "first_name", "Admin"
+                )
+                update.callback_query.answer = AsyncMock()
+                update.callback_query.edit_message_text = AsyncMock()
+
+            if update.message is None and update.callback_query is None:
+                return None
+            return update
 
         mock_de_json.side_effect = de_json_side_effect
 
@@ -116,14 +134,18 @@ def client(mock_bot):
 
         async def process_update_impl(update):
             """Process update through the handler."""
-            if update.message and update.message.text:
-                from src.bot.handlers import handle_admin_response
+            from src.bot.handlers import handle_admin_response
+            from src.bot.handlers.admin_requests import handle_admin_callback
 
-                ctx = MagicMock()
-                ctx.application = mock_app
-                ctx.bot_data = {}
+            ctx = MagicMock()
+            ctx.application = mock_app
+            ctx.bot_data = {}
 
-                # Use the unified admin response handler
+            # Route to callback handler for callback queries
+            if update.callback_query:
+                await handle_admin_callback(update, ctx)
+            # Route to message handler for text messages
+            elif update.message and update.message.text:
                 await handle_admin_response(update, ctx)
 
         mock_app.process_update.side_effect = process_update_impl
@@ -155,29 +177,30 @@ class TestAdminHandlers:
             db.close()
 
     def test_admin_approval_handler(self, client, mock_bot):
-        """Test admin approval response handler (T036).
+        """Test admin approval via callback button (T036).
 
-        Contract: POST /webhook/telegram with "Approve" reply → returns 200,
-        request status updated to approved, client receives welcome message.
+        Contract: POST /webhook/telegram with callback_query "approve:<id>"
+        → returns 200, request status updated to approved, client receives welcome message.
         """
         # Setup: Create a pending request
         client_id = 123456789
         admin_id = 987654321
         request = self._create_request_in_db(client_id, "Emergency help")
 
-        # Create Telegram Update for admin approval
+        # Create Telegram Update for admin approval via callback button
         update_json = {
             "update_id": 100,
-            "message": {
-                "message_id": 100,
-                "date": int(datetime.now(timezone.utc).timestamp()),
-                "chat": {"id": admin_id, "type": "private"},
+            "callback_query": {
+                "id": "callback_123",
                 "from": {"id": admin_id, "is_bot": False, "first_name": "Admin"},
-                "text": "Approve",
-                "reply_to_message": {
+                "chat_instance": "12345",
+                "data": f"approve:{request.id}",
+                "message": {
                     "message_id": 50,
+                    "date": int(datetime.now(timezone.utc).timestamp()),
+                    "chat": {"id": admin_id, "type": "private"},
                     "from": {"id": 777, "is_bot": True},
-                    "text": f"<b>Request #{request.id}</b>\n\n<a href='tg://user?id={client_id}'>Test</a> (ID: {client_id})\n\n<b>Message:</b>\nEmergency help\n\nReply with 'Approve' or 'Reject' or use the buttons below",
+                    "text": f"Request #{request.id}\n\nTest (ID: {client_id})\n\nMessage:\nEmergency help",
                 },
             },
         }
@@ -203,7 +226,7 @@ class TestAdminHandlers:
     def test_approval_with_invalid_request(self, client, mock_bot):
         """Test approval when request doesn't exist (T037).
 
-        Contract: POST /webhook/telegram with "Approve" when request doesn't exist
+        Contract: POST /webhook/telegram with callback "approve:99999" when request doesn't exist
         → returns 200, admin receives error "Request not found".
         """
         admin_id = 987654321
@@ -211,16 +234,17 @@ class TestAdminHandlers:
         # Create update with approval but no valid request ID
         update_json = {
             "update_id": 101,
-            "message": {
-                "message_id": 101,
-                "date": int(datetime.now(timezone.utc).timestamp()),
-                "chat": {"id": admin_id, "type": "private"},
+            "callback_query": {
+                "id": "callback_456",
                 "from": {"id": admin_id, "is_bot": False, "first_name": "Admin"},
-                "text": "Approve",
-                "reply_to_message": {
+                "chat_instance": "12345",
+                "data": "approve:99999",
+                "message": {
                     "message_id": 99,
+                    "date": int(datetime.now(timezone.utc).timestamp()),
+                    "chat": {"id": admin_id, "type": "private"},
                     "from": {"id": 777, "is_bot": True},
-                    "text": "<b>Request #99999</b>\n\n<a href='tg://user?id=999999'>Unknown</a> (ID: 999999)\n\n<b>Message:</b>\nTest\n\nReply with 'Approve' or 'Reject' or use the buttons below",
+                    "text": "Request #99999\n\nUnknown (ID: 999999)\n\nMessage:\nTest",
                 },
             },
         }
@@ -241,29 +265,30 @@ class TestAdminHandlers:
             db.close()
 
     def test_admin_rejection_handler(self, client, mock_bot):
-        """Test admin rejection response handler (T047).
+        """Test admin rejection via callback button (T047).
 
-        Contract: POST /webhook/telegram with "Reject" reply → returns 200,
-        request status updated to rejected, client receives rejection message.
+        Contract: POST /webhook/telegram with callback_query "reject:<id>"
+        → returns 200, request status updated to rejected, client receives rejection message.
         """
         # Setup: Create a pending request
         client_id = 111222333
         admin_id = 987654321
         request = self._create_request_in_db(client_id, "Suspicious request")
 
-        # Create Telegram Update for admin rejection
+        # Create Telegram Update for admin rejection via callback button
         update_json = {
             "update_id": 200,
-            "message": {
-                "message_id": 200,
-                "date": int(datetime.now(timezone.utc).timestamp()),
-                "chat": {"id": admin_id, "type": "private"},
+            "callback_query": {
+                "id": "callback_789",
                 "from": {"id": admin_id, "is_bot": False, "first_name": "Admin"},
-                "text": "Reject",
-                "reply_to_message": {
+                "chat_instance": "12345",
+                "data": f"reject:{request.id}",
+                "message": {
                     "message_id": 60,
+                    "date": int(datetime.now(timezone.utc).timestamp()),
+                    "chat": {"id": admin_id, "type": "private"},
                     "from": {"id": 777, "is_bot": True},
-                    "text": f"<b>Request #{request.id}</b>\n\n<a href='tg://user?id={client_id}'>Test2</a> (ID: {client_id})\n\n<b>Message:</b>\nSuspicious request\n\nReply with 'Approve' or 'Reject' or use the buttons below",
+                    "text": f"Request #{request.id}\n\nTest2 (ID: {client_id})\n\nMessage:\nSuspicious request",
                 },
             },
         }
@@ -288,7 +313,7 @@ class TestAdminHandlers:
     def test_rejection_with_invalid_request(self, client, mock_bot):
         """Test rejection when request doesn't exist (T048).
 
-        Contract: POST /webhook/telegram with "Reject" when request doesn't exist
+        Contract: POST /webhook/telegram with callback "reject:99999" when request doesn't exist
         → returns 200, admin receives error "Request not found".
         """
         admin_id = 555666777
@@ -296,16 +321,17 @@ class TestAdminHandlers:
         # Create update with rejection but no valid request ID
         update_json = {
             "update_id": 201,
-            "message": {
-                "message_id": 201,
-                "date": int(datetime.now(timezone.utc).timestamp()),
-                "chat": {"id": admin_id, "type": "private"},
+            "callback_query": {
+                "id": "callback_999",
                 "from": {"id": admin_id, "is_bot": False, "first_name": "Admin"},
-                "text": "Reject",
-                "reply_to_message": {
+                "chat_instance": "12345",
+                "data": "reject:99999",
+                "message": {
                     "message_id": 199,
+                    "date": int(datetime.now(timezone.utc).timestamp()),
+                    "chat": {"id": admin_id, "type": "private"},
                     "from": {"id": 777, "is_bot": True},
-                    "text": "<b>Request #99999</b>\n\n<a href='tg://user?id=999999'>Unknown</a> (ID: 999999)\n\n<b>Message:</b>\nTest\n\nReply with 'Approve' or 'Reject' or use the buttons below",
+                    "text": "Request #99999\n\nUnknown (ID: 999999)\n\nMessage:\nTest",
                 },
             },
         }
