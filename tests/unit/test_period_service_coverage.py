@@ -69,7 +69,7 @@ async def test_period_service_get_open_periods(async_db_session):
 
 
 async def test_period_service_get_open_periods_limit(async_db_session):
-    """Test getting open periods with limit."""
+    """Test getting all open periods without limit."""
     # Create 5 open periods
     for i in range(5):
         period = ServicePeriod(
@@ -82,9 +82,9 @@ async def test_period_service_get_open_periods_limit(async_db_session):
     await async_db_session.commit()
 
     service = ServicePeriodService(async_db_session)
-    periods = await service.get_open_periods(limit=3)
+    periods = await service.get_open_periods()
 
-    assert len(periods) == 3
+    assert len(periods) == 5
 
 
 async def test_period_service_get_by_id(async_db_session):

@@ -6,11 +6,10 @@ from datetime import date
 from decimal import Decimal
 from typing import NamedTuple
 
+from dateutil.relativedelta import relativedelta
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.models.account import Account
-from src.models.bill import Bill, BillType
 from src.models.service_period import ServicePeriod
 
 logger = logging.getLogger(__name__)
@@ -48,20 +47,16 @@ class ServicePeriodService:
         """Initialize with async database session."""
         self.session = session
 
-    async def get_open_periods(self, limit: int = 5) -> list[ServicePeriod]:
-        """Get open service periods ordered by start_date desc.
-
-        Args:
-            limit: Maximum number of periods to return
+    async def get_open_periods(self) -> list[ServicePeriod]:
+        """Get all open service periods ordered by start_date desc.
 
         Returns:
-            List of open ServicePeriod objects
+            List of all open ServicePeriod objects
         """
         stmt = (
             select(ServicePeriod)
             .filter(ServicePeriod.status == "open")
             .order_by(ServicePeriod.start_date.desc())
-            .limit(limit)
         )
         result = await self.session.execute(stmt)
         return list(result.scalars().all())
@@ -200,15 +195,15 @@ class ServicePeriodService:
     async def create_period(
         self,
         start_date: date,
-        end_date: date,
+        period_months: int = 1,
         name: str | None = None,
         actor_id: int | None = None,
     ) -> ServicePeriod:
         """Create new service period.
 
         Args:
-            start_date: Period start date
-            end_date: Period end date
+            start_date: Period start date (must be first day of month)
+            period_months: Number of months in period (default 1, valid range 1-12)
             name: Optional custom name (auto-generated if not provided)
             actor_id: Admin user ID who created the period (optional, for audit)
 
@@ -216,10 +211,18 @@ class ServicePeriodService:
             Created ServicePeriod object
 
         Raises:
-            ValueError: If start_date >= end_date
+            ValueError: If start_date is not first day of month or period_months out of range
         """
-        if start_date >= end_date:
-            raise ValueError("start_date must be before end_date")
+        # Validate start_date is first day of month
+        if start_date.day != 1:
+            raise ValueError("start_date must be the first day of the month")
+
+        # Validate period_months is in valid range
+        if not (1 <= period_months <= 12):
+            raise ValueError("period_months must be between 1 and 12")
+
+        # Calculate end_date as first day of next month after period_months
+        end_date = start_date + relativedelta(months=period_months)
 
         # Auto-generate name if not provided
         if not name:
@@ -230,17 +233,19 @@ class ServicePeriodService:
             start_date=start_date,
             end_date=end_date,
             status="open",
+            period_months=period_months,
         )
         self.session.add(new_period)
         await self.session.commit()
         await self.session.refresh(new_period)
 
         logger.info(
-            "Created new service period: id=%d, name=%s, dates=%s to %s, actor_id=%s",
+            "Created new service period: id=%d, name=%s, dates=%s to %s, period_months=%d, actor_id=%s",
             new_period.id,
             name,
             start_date,
             end_date,
+            period_months,
             actor_id,
         )
 
@@ -254,10 +259,9 @@ class ServicePeriodService:
         electricity_multiplier: Decimal,
         electricity_rate: Decimal,
         electricity_losses: Decimal,
-        close_period: bool = True,
         actor_id: int | None = None,
     ) -> bool:
-        """Update period with electricity readings and optionally close it.
+        """Update period with electricity readings only (no status change).
 
         Args:
             period_id: Period ID to update
@@ -266,8 +270,7 @@ class ServicePeriodService:
             electricity_multiplier: Consumption multiplier
             electricity_rate: Rate per kWh
             electricity_losses: Transmission losses ratio
-            close_period: Whether to close the period after update
-            actor_id: Admin user ID who closed the period (optional)
+            actor_id: Admin user ID performing the update (optional)
 
         Returns:
             True if successful, False if period not found
@@ -282,73 +285,86 @@ class ServicePeriodService:
         period.electricity_rate = electricity_rate
         period.electricity_losses = electricity_losses
 
-        if close_period:
-            period.status = "closed"
-
         await self.session.commit()
 
         logger.info(
-            "Updated period %d electricity data: start=%s, end=%s, multiplier=%s, rate=%s, losses=%s, closed=%s",
+            "Updated period %d electricity data: start=%s, end=%s, multiplier=%s, rate=%s, losses=%s (actor_id=%s)",
             period_id,
             electricity_start,
             electricity_end,
             electricity_multiplier,
             electricity_rate,
             electricity_losses,
-            close_period,
+            actor_id,
         )
 
         return True
 
-    async def create_shared_electricity_bills(
+    async def update_budget_data(
         self,
         period_id: int,
-        owner_shares: list,
+        year_budget: Decimal,
+        conservation_year_budget: Decimal,
         actor_id: int | None = None,
-    ) -> int:
-        """Create SHARED_ELECTRICITY bills for each owner.
-
-        Looks up owner's account and creates Bill record.
+    ) -> bool:
+        """Update period with budget data only (no status change).
 
         Args:
-            period_id: Service period ID
-            owner_shares: List of OwnerShare namedtuples with user_id and calculated_bill_amount
-            actor_id: Admin user ID who created bills (optional)
+            period_id: Period ID to update
+            year_budget: Annual MAIN budget
+            conservation_year_budget: Annual CONSERVATION budget
+            actor_id: Admin user ID performing the update (optional)
 
         Returns:
-            Count of bills created
+            True if successful, False if period not found
         """
-        bills_created = 0
+        period = await self.get_by_id(period_id)
+        if not period:
+            return False
 
-        for share in owner_shares:
-            # Find account for this user
-            stmt = select(Account).filter(
-                Account.user_id == share.user_id,
-                Account.account_type == "owner",
-            )
-            result = await self.session.execute(stmt)
-            account = result.scalar_one_or_none()
-
-            if account:
-                bill = Bill(
-                    service_period_id=period_id,
-                    account_id=account.id,
-                    property_id=None,
-                    bill_type=BillType.SHARED_ELECTRICITY,
-                    bill_amount=share.calculated_bill_amount,
-                )
-                self.session.add(bill)
-                bills_created += 1
+        period.year_budget = year_budget
+        period.conservation_year_budget = conservation_year_budget
 
         await self.session.commit()
 
         logger.info(
-            "Created %d shared electricity bills for period %d",
-            bills_created,
+            "Updated period %d budget data: year_budget=%s, conservation_year_budget=%s (actor_id=%s)",
             period_id,
+            year_budget,
+            conservation_year_budget,
+            actor_id,
         )
 
-        return bills_created
+        return True
+
+    async def close_period(
+        self,
+        period_id: int,
+        actor_id: int | None = None,
+    ) -> bool:
+        """Close a service period (status change only).
+
+        Args:
+            period_id: Period ID to close
+            actor_id: Admin user ID who closed the period (optional)
+
+        Returns:
+            True if successful, False if period not found
+        """
+        period = await self.get_by_id(period_id)
+        if not period:
+            return False
+
+        period.status = "closed"
+        await self.session.commit()
+
+        logger.info(
+            "Closed period %d ('%s') (actor_id=%s)",
+            period_id,
+            period.name,
+            actor_id,
+        )
+        return True
 
 
 # Alias for backwards compatibility during migration

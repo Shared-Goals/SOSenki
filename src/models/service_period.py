@@ -49,6 +49,22 @@ class ServicePeriod(Base, BaseModel):
         default=PeriodStatus.OPEN,
         comment="Period status (open for transactions, closed for calculation)",
     )
+    period_months: Mapped[int] = mapped_column(
+        nullable=False,
+        default=1,
+        comment="Number of months in this period (1-12)",
+    )
+    # Budget configuration (optional, for bill calculations)
+    year_budget: Mapped[Decimal | None] = mapped_column(
+        Numeric(10, 2),
+        nullable=True,
+        comment="Annual budget for MAIN bills (all non-conservation properties)",
+    )
+    conservation_year_budget: Mapped[Decimal | None] = mapped_column(
+        Numeric(10, 2),
+        nullable=True,
+        comment="Annual budget for CONSERVATION bills (conservation-flagged properties)",
+    )
     # Electricity configuration (optional, for billing calculations)
     electricity_start: Mapped[Decimal | None] = mapped_column(
         Numeric(10, 2),

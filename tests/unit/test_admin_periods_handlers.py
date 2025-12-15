@@ -10,7 +10,7 @@ from telegram.ext import ContextTypes
 
 from src.bot.handlers.admin_periods import (
     handle_period_action_selection,
-    handle_period_end_date_input,
+    handle_period_months_input,
     handle_period_start_date_input,
     handle_periods_cancel,
     handle_periods_command,
@@ -58,7 +58,7 @@ async def test_handle_periods_cancel_clears_context(mock_update, mock_context):
     """Test cancel clears all periods-related context."""
     mock_context.user_data["periods_admin_id"] = 123
     mock_context.user_data["period_start_date"] = date(2025, 1, 1)
-    mock_context.user_data["period_end_date"] = date(2025, 1, 31)
+    mock_context.user_data["period_months"] = 1
     mock_context.user_data["period_id"] = 1
     mock_context.user_data["period_name"] = "Test Period"
     mock_context.user_data["other_data"] = "preserved"
@@ -68,7 +68,7 @@ async def test_handle_periods_cancel_clears_context(mock_update, mock_context):
     assert result == -1
     assert "periods_admin_id" not in mock_context.user_data
     assert "period_start_date" not in mock_context.user_data
-    assert "period_end_date" not in mock_context.user_data
+    assert "period_months" not in mock_context.user_data
     assert "period_id" not in mock_context.user_data
     assert "period_name" not in mock_context.user_data
     assert mock_context.user_data["other_data"] == "preserved"
@@ -335,11 +335,20 @@ async def test_handle_period_start_date_input_invalid_format(mock_update, mock_c
 
 @pytest.mark.asyncio
 async def test_handle_period_start_date_input_valid(mock_update, mock_context):
-    """Test start date input accepts valid format."""
+    """Test start date input accepts valid first-of-month format."""
     mock_update.message.text = "01.01.2025"
     result = await handle_period_start_date_input(mock_update, mock_context)
     assert result == 12
     assert mock_context.user_data["period_start_date"] == date(2025, 1, 1)
+    mock_update.message.reply_text.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_handle_period_start_date_input_not_first_of_month(mock_update, mock_context):
+    """Test start date input rejects dates not on first of month."""
+    mock_update.message.text = "15.01.2025"  # Not first of month
+    result = await handle_period_start_date_input(mock_update, mock_context)
+    assert result == 11
     mock_update.message.reply_text.assert_called_once()
 
 
@@ -353,63 +362,75 @@ async def test_handle_period_start_date_input_exception(mock_update, mock_contex
     assert result == -1
 
 
-# Tests for handle_period_end_date_input
+# Tests for handle_period_months_input
 
 
 @pytest.mark.asyncio
-async def test_handle_period_end_date_input_no_message(mock_update, mock_context):
-    """Test end date input returns 12 when no message."""
+async def test_handle_period_months_input_no_message(mock_update, mock_context):
+    """Test months input returns 12 when no message."""
     mock_update.message = None
-    result = await handle_period_end_date_input(mock_update, mock_context)
+    result = await handle_period_months_input(mock_update, mock_context)
     assert result == 12
 
 
 @pytest.mark.asyncio
-async def test_handle_period_end_date_input_no_text(mock_update, mock_context):
-    """Test end date input returns 12 when no text."""
+async def test_handle_period_months_input_no_text(mock_update, mock_context):
+    """Test months input returns 12 when no text."""
     mock_update.message.text = None
-    result = await handle_period_end_date_input(mock_update, mock_context)
+    result = await handle_period_months_input(mock_update, mock_context)
     assert result == 12
 
 
 @pytest.mark.asyncio
-async def test_handle_period_end_date_input_invalid_format(mock_update, mock_context):
-    """Test end date input rejects invalid format."""
+async def test_handle_period_months_input_invalid_format(mock_update, mock_context):
+    """Test months input rejects non-integer input."""
     mock_context.user_data["period_start_date"] = date(2025, 1, 1)
-    mock_update.message.text = "invalid"
-    result = await handle_period_end_date_input(mock_update, mock_context)
+    mock_update.message.text = "abc"
+    result = await handle_period_months_input(mock_update, mock_context)
     assert result == 12
     mock_update.message.reply_text.assert_called_once()
 
 
 @pytest.mark.asyncio
-async def test_handle_period_end_date_input_before_start(mock_update, mock_context):
-    """Test end date input rejects date before start."""
-    mock_context.user_data["period_start_date"] = date(2025, 1, 15)
-    mock_update.message.text = "01.01.2025"
-    result = await handle_period_end_date_input(mock_update, mock_context)
-    assert result == 12
-
-
-@pytest.mark.asyncio
-async def test_handle_period_end_date_input_equal_to_start(mock_update, mock_context):
-    """Test end date input rejects date equal to start."""
+async def test_handle_period_months_input_below_range(mock_update, mock_context):
+    """Test months input rejects value below 1."""
     mock_context.user_data["period_start_date"] = date(2025, 1, 1)
-    mock_update.message.text = "01.01.2025"
-    result = await handle_period_end_date_input(mock_update, mock_context)
+    mock_update.message.text = "0"
+    result = await handle_period_months_input(mock_update, mock_context)
     assert result == 12
+    mock_update.message.reply_text.assert_called_once()
 
 
 @pytest.mark.asyncio
-async def test_handle_period_end_date_input_valid_creates_period(mock_update, mock_context):
-    """Test end date input creates period on valid date."""
+async def test_handle_period_months_input_above_range(mock_update, mock_context):
+    """Test months input rejects value above 12."""
+    mock_context.user_data["period_start_date"] = date(2025, 1, 1)
+    mock_update.message.text = "13"
+    result = await handle_period_months_input(mock_update, mock_context)
+    assert result == 12
+    mock_update.message.reply_text.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_handle_period_months_input_missing_start_date(mock_update, mock_context):
+    """Test months input returns -1 when start_date not in context."""
+    mock_update.message.text = "1"
+    # period_start_date not in context
+    result = await handle_period_months_input(mock_update, mock_context)
+    assert result == -1
+
+
+@pytest.mark.asyncio
+async def test_handle_period_months_input_valid_1_month(mock_update, mock_context):
+    """Test months input creates period with 1 month duration."""
     mock_context.user_data["period_start_date"] = date(2025, 1, 1)
     mock_context.user_data["periods_admin_id"] = 123
-    mock_update.message.text = "31.01.2025"
+    mock_update.message.text = "1"
 
     mock_period = MagicMock(spec=ServicePeriod)
     mock_period.id = 1
-    mock_period.name = "01.01.2025 - 31.01.2025"
+    mock_period.name = "01.01.2025 - 01.02.2025"
+    mock_period.end_date = date(2025, 2, 1)
 
     mock_service = MagicMock()
     mock_service.create_period = AsyncMock(return_value=mock_period)
@@ -423,27 +444,95 @@ async def test_handle_period_end_date_input_valid_creates_period(mock_update, mo
             "src.bot.handlers.admin_periods.ServicePeriodService",
             return_value=mock_service,
         ):
-            result = await handle_period_end_date_input(mock_update, mock_context)
+            result = await handle_period_months_input(mock_update, mock_context)
 
     assert result == -1
     assert mock_context.user_data["period_id"] == 1
-    assert mock_context.user_data["period_name"] == "01.01.2025 - 31.01.2025"
+    assert mock_context.user_data["period_months"] == 1
     mock_service.create_period.assert_awaited_once_with(
-        date(2025, 1, 1), date(2025, 1, 31), actor_id=123
+        date(2025, 1, 1), period_months=1, actor_id=123
+    )
+    mock_update.message.reply_text.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_handle_period_months_input_valid_3_months(mock_update, mock_context):
+    """Test months input creates period with 3 months duration."""
+    mock_context.user_data["period_start_date"] = date(2025, 1, 1)
+    mock_context.user_data["periods_admin_id"] = 456
+    mock_update.message.text = "3"
+
+    mock_period = MagicMock(spec=ServicePeriod)
+    mock_period.id = 2
+    mock_period.name = "01.01.2025 - 01.04.2025"
+    mock_period.end_date = date(2025, 4, 1)
+
+    mock_service = MagicMock()
+    mock_service.create_period = AsyncMock(return_value=mock_period)
+
+    mock_async_session = MagicMock()
+    mock_async_session.__aenter__ = AsyncMock(return_value=mock_async_session)
+    mock_async_session.__aexit__ = AsyncMock(return_value=None)
+
+    with patch("src.bot.handlers.admin_periods.AsyncSessionLocal", return_value=mock_async_session):
+        with patch(
+            "src.bot.handlers.admin_periods.ServicePeriodService",
+            return_value=mock_service,
+        ):
+            result = await handle_period_months_input(mock_update, mock_context)
+
+    assert result == -1
+    assert mock_context.user_data["period_months"] == 3
+    mock_service.create_period.assert_awaited_once_with(
+        date(2025, 1, 1), period_months=3, actor_id=456
     )
 
 
 @pytest.mark.asyncio
-async def test_handle_period_end_date_input_exception(mock_update, mock_context):
-    """Test end date input handles exceptions."""
+async def test_handle_period_months_input_valid_12_months(mock_update, mock_context):
+    """Test months input creates period with 12 months duration."""
     mock_context.user_data["period_start_date"] = date(2025, 1, 1)
-    mock_update.message.text = "31.01.2025"
+    mock_context.user_data["periods_admin_id"] = 789
+    mock_update.message.text = "12"
+
+    mock_period = MagicMock(spec=ServicePeriod)
+    mock_period.id = 3
+    mock_period.name = "01.01.2025 - 01.01.2026"
+    mock_period.end_date = date(2026, 1, 1)
+
+    mock_service = MagicMock()
+    mock_service.create_period = AsyncMock(return_value=mock_period)
+
+    mock_async_session = MagicMock()
+    mock_async_session.__aenter__ = AsyncMock(return_value=mock_async_session)
+    mock_async_session.__aexit__ = AsyncMock(return_value=None)
+
+    with patch("src.bot.handlers.admin_periods.AsyncSessionLocal", return_value=mock_async_session):
+        with patch(
+            "src.bot.handlers.admin_periods.ServicePeriodService",
+            return_value=mock_service,
+        ):
+            result = await handle_period_months_input(mock_update, mock_context)
+
+    assert result == -1
+    assert mock_context.user_data["period_months"] == 12
+    mock_service.create_period.assert_awaited_once_with(
+        date(2025, 1, 1), period_months=12, actor_id=789
+    )
+
+
+@pytest.mark.asyncio
+async def test_handle_period_months_input_exception(mock_update, mock_context):
+    """Test months input handles exceptions."""
+    mock_context.user_data["period_start_date"] = date(2025, 1, 1)
+    mock_update.message.text = "1"
 
     mock_async_session = MagicMock()
     mock_async_session.__aenter__ = AsyncMock(side_effect=Exception("Database error"))
     mock_async_session.__aexit__ = AsyncMock(return_value=None)
 
     with patch("src.bot.handlers.admin_periods.AsyncSessionLocal", return_value=mock_async_session):
-        result = await handle_period_end_date_input(mock_update, mock_context)
+        result = await handle_period_months_input(mock_update, mock_context)
 
     assert result == -1
+    mock_update.message.reply_text.assert_called_once()

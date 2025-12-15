@@ -13,8 +13,11 @@ from telegram import (
 from telegram.ext import ContextTypes
 
 from src.bot.auth import verify_admin_authorization
-from src.services import AsyncSessionLocal, ServicePeriodService
-from src.services.electricity_service import ElectricityService
+from src.models.service_period import ServicePeriod
+from src.models.user import User
+from src.services import AsyncSessionLocal, BillsService, ServicePeriodService
+from src.services.bills_service import OwnerShare
+from src.services.locale_service import format_currency
 from src.services.localizer import t
 from src.utils.parsers import parse_russian_decimal
 
@@ -23,19 +26,32 @@ logger = logging.getLogger(__name__)
 
 # Conversation state constants
 class States:
-    """Conversation states for electricity bills workflow."""
+    """Conversation states for bills workflow (readings/budget/close)."""
 
     END = -1
     SELECT_PERIOD = 1
-    INPUT_METER_START = 2
-    INPUT_METER_END = 5
-    INPUT_MULTIPLIER = 6
-    INPUT_RATE = 7
-    INPUT_LOSSES = 8
-    CONFIRM_BILLS = 9
+    SELECT_ACTION = 2
+    # Electricity (readings) states
+    INPUT_METER_START = 3
+    INPUT_METER_END = 4
+    INPUT_MULTIPLIER = 5
+    INPUT_RATE = 6
+    INPUT_LOSSES = 7
+    CONFIRM_ELECTRICITY_BILLS = 8
+    # Budget states
+    INPUT_MAIN_BUDGET = 9
+    INPUT_CONSERVATION_BUDGET = 10
+    CONFIRM_BUDGET_BILLS = 11
 
 
 # Context data keys
+_SHARED_BILLS_KEYS = [
+    "bills_admin_id",
+    "bills_period_id",
+    "bills_period_name",
+    "authorized_admin",
+]
+
 _ELECTRICITY_KEYS = [
     "electricity_admin_id",
     "electricity_period_id",
@@ -59,6 +75,26 @@ _ELECTRICITY_KEYS = [
 def _clear_electricity_context(context: ContextTypes.DEFAULT_TYPE) -> None:
     """Clear all electricity-related context data."""
     for key in _ELECTRICITY_KEYS:
+        context.user_data.pop(key, None)
+
+
+_BUDGET_KEYS = [
+    "budget_admin_id",
+    "budget_period_id",
+    "budget_period_name",
+    "budget_year_budget",
+    "budget_conservation_year_budget",
+    "budget_main_calculations",
+    "budget_conservation_calculations",
+    "budget_previous_year_budget",
+    "budget_previous_conservation_year_budget",
+    "authorized_admin",
+]
+
+
+def _clear_budget_context(context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Clear all budget-related context data."""
+    for key in _BUDGET_KEYS:
         context.user_data.pop(key, None)
 
 
@@ -116,28 +152,32 @@ def _build_previous_value_keyboard(previous_value: str | None) -> ReplyKeyboardM
     )
 
 
-async def handle_electricity_bills_cancel(
-    update: Update, context: ContextTypes.DEFAULT_TYPE
-) -> int:
-    """Cancel/reset electricity bills workflow.
+async def handle_bills_cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Cancel/reset bills workflow.
 
     Clears all conversation context and ends the conversation.
     Called when user types /bills while already in active conversation.
     """
     _clear_electricity_context(context)
+    _clear_budget_context(context)
+    # Clear shared bills context
+    for key in _SHARED_BILLS_KEYS:
+        context.user_data.pop(key, None)
     return States.END
 
 
-async def handle_electricity_bills_command(  # noqa: C901
+async def handle_bills_command(  # noqa: C901
     update: Update, context: ContextTypes.DEFAULT_TYPE
 ) -> int:
-    """Start electricity bills management workflow.
+    """Start bills management workflow.
 
-    Admin command to interactively calculate and create shared electricity bills.
+    Admin command to manage bills - choose period, then select action:
+    - Generate bills based on readings (electricity)
+    - Generate bills based on budget (MAIN + CONSERVATION)
+    - Close period without generating bills
+
     Entry point for multi-step conversation.
     Usage: /bills
-
-    T050: Implement electricity bills admin command
 
     Returns:
         Conversation state for next step (SELECT_PERIOD)
@@ -162,15 +202,15 @@ async def handle_electricity_bills_command(  # noqa: C901
         async with AsyncSessionLocal() as session:
             # Query open service periods
             period_service = ServicePeriodService(session)
-            open_periods = await period_service.get_open_periods(limit=5)
+            open_periods = await period_service.get_open_periods()
 
             # Build inline buttons for period selection
             buttons = []
-            for period in open_periods[:5]:  # Limit to 5 recent periods
+            for period in open_periods:
                 buttons.append(
                     [
                         InlineKeyboardButton(
-                            f"📅 {period.name}", callback_data=f"elec_period:{period.id}"
+                            f"📅 {period.name}", callback_data=f"bill_period:{period.id}"
                         )
                     ]
                 )
@@ -183,19 +223,19 @@ async def handle_electricity_bills_command(  # noqa: C901
             )
 
             logger.info(
-                "Electricity bills workflow started by admin user_id=%d (telegram_id=%d)",
+                "Bills workflow started by admin user_id=%d (telegram_id=%d)",
                 admin_user.id,
                 telegram_id,
             )
 
             # Store authenticated admin user context
             context.user_data["authorized_admin"] = admin_user
-            context.user_data["electricity_admin_id"] = telegram_id
+            context.user_data["bills_admin_id"] = telegram_id
 
             return States.SELECT_PERIOD
 
     except Exception as e:
-        logger.error("Error starting electricity bills workflow: %s", e, exc_info=True)
+        logger.error("Error starting bills workflow: %s", e, exc_info=True)
         try:
             await update.message.reply_text(t("errors.error_processing"))
         except Exception:
@@ -203,12 +243,15 @@ async def handle_electricity_bills_command(  # noqa: C901
         return States.END
 
 
-async def handle_electricity_period_selection(  # noqa: C901
+async def handle_period_selection(  # noqa: C901
     update: Update, context: ContextTypes.DEFAULT_TYPE
 ) -> int:
-    """Handle service period selection for electricity bills.
+    """Handle service period selection and show action options.
 
-    User selects existing open service period to fill electricity data.
+    User selects existing open service period, then chooses:
+    - Generate bills based on readings (electricity)
+    - Generate bills based on budget (MAIN + CONSERVATION)
+    - Close period without generating bills
     """
     try:
         cq = update.callback_query
@@ -236,7 +279,96 @@ async def handle_electricity_period_selection(  # noqa: C901
                 await cq.edit_message_text(t("errors.error_processing"))
                 return States.END
 
-            # Store selected period
+            # Store selected period (in both contexts for compatibility)
+            context.user_data["bills_period_id"] = period_id
+            context.user_data["bills_period_name"] = period.name
+
+            # Show 2 action buttons
+            buttons = [
+                [
+                    InlineKeyboardButton(
+                        t("bills.action_readings"),
+                        callback_data=f"bill_action:readings:{period_id}",
+                    )
+                ],
+                [
+                    InlineKeyboardButton(
+                        t("bills.action_budget"), callback_data=f"bill_action:budget:{period_id}"
+                    )
+                ],
+            ]
+            keyboard = InlineKeyboardMarkup(buttons)
+
+            await cq.edit_message_text(
+                t("bills.select_action", period_name=period.name),
+                reply_markup=keyboard,
+            )
+
+            return States.SELECT_ACTION
+
+    except Exception as e:
+        logger.error("Error in period selection: %s", e, exc_info=True)
+        try:
+            await update.callback_query.edit_message_text(t("errors.error_processing"))
+        except Exception:
+            logger.debug("Could not edit message after error", exc_info=True)
+        return States.END
+
+
+async def handle_action_selection(  # noqa: C901
+    update: Update, context: ContextTypes.DEFAULT_TYPE
+) -> int:
+    """Handle action selection: readings, budget, or close period."""
+    try:
+        cq = update.callback_query
+        if not cq or not cq.data:
+            logger.warning("Received action selection callback without data")
+            return States.END
+
+        await cq.answer()
+
+        # Parse action
+        parts = cq.data.split(":")
+        if len(parts) < 3:
+            await cq.edit_message_text(t("errors.error_processing"))
+            return States.END
+
+        action = parts[1]  # "readings", "budget", or "close"
+        period_id = int(parts[2])
+
+        if action == "readings":
+            # Route to electricity workflow
+            return await _start_electricity_workflow(update, context, period_id)
+        elif action == "budget":
+            # Route to budget workflow
+            return await _start_budget_workflow(update, context, period_id)
+        else:
+            await cq.edit_message_text(t("errors.error_processing"))
+            return States.END
+
+    except Exception as e:
+        logger.error("Error in action selection: %s", e, exc_info=True)
+        try:
+            await update.callback_query.edit_message_text(t("errors.error_processing"))
+        except Exception:
+            pass
+        return States.END
+
+
+async def _start_electricity_workflow(
+    update: Update, context: ContextTypes.DEFAULT_TYPE, period_id: int
+) -> int:
+    """Initialize electricity workflow after action selection."""
+    try:
+        async with AsyncSessionLocal() as session:
+            period_service = ServicePeriodService(session)
+            period = await period_service.get_by_id(period_id)
+
+            if not period:
+                await update.callback_query.edit_message_text(t("errors.error_processing"))
+                return States.END
+
+            # Store period info
             context.user_data["electricity_period_id"] = period_id
             context.user_data["electricity_period_name"] = period.name
 
@@ -248,24 +380,79 @@ async def handle_electricity_period_selection(  # noqa: C901
             context.user_data["electricity_previous_multiplier"] = defaults.electricity_multiplier
             context.user_data["electricity_previous_losses"] = defaults.electricity_losses
 
-            # Ask for electricity_start (with default from previous period's electricity_end if available)
+            # Ask for electricity_start
             default_start = defaults.electricity_end if defaults.electricity_end else "?"
             prompt = f"{t('labels.meter_start_label')}\n\n({t('labels.previous_value', value=default_start)})"
 
-            # Build reply keyboard with previous period's electricity_end value if available
             keyboard = _build_previous_value_keyboard(defaults.electricity_end)
 
-            # Send prompt with keyboard (if available)
-            await cq.message.reply_text(prompt, reply_markup=keyboard)
+            await update.callback_query.edit_message_text(t("bills.starting_readings_workflow"))
+            await update.callback_query.message.reply_text(prompt, reply_markup=keyboard)
 
             return States.INPUT_METER_START
 
     except Exception as e:
-        logger.error("Error in period selection: %s", e, exc_info=True)
-        try:
-            await update.callback_query.edit_message_text(t("errors.error_processing"))
-        except Exception:
-            logger.debug("Could not edit message after error", exc_info=True)
+        logger.error("Error starting electricity workflow: %s", e, exc_info=True)
+        return States.END
+
+
+async def _start_budget_workflow(
+    update: Update, context: ContextTypes.DEFAULT_TYPE, period_id: int
+) -> int:
+    """Initialize budget workflow after action selection."""
+    try:
+        async with AsyncSessionLocal() as session:
+            period_service = ServicePeriodService(session)
+            period = await period_service.get_by_id(period_id)
+
+            if not period:
+                await update.callback_query.edit_message_text(t("errors.error_processing"))
+                return States.END
+
+            # Store period info
+            context.user_data["budget_period_id"] = period_id
+            context.user_data["budget_period_name"] = period.name
+
+            # Fetch previous period for budget defaults
+            from sqlalchemy import select
+
+            prev_period_stmt = (
+                select(ServicePeriod)
+                .filter(ServicePeriod.start_date < period.start_date)
+                .order_by(ServicePeriod.start_date.desc())
+                .limit(1)
+            )
+            prev_result = await session.execute(prev_period_stmt)
+            prev_period = prev_result.scalar_one_or_none()
+
+            prev_year_budget = None
+            prev_conservation_budget = None
+
+            if prev_period:
+                if prev_period.year_budget:
+                    prev_year_budget = str(prev_period.year_budget)
+                if prev_period.conservation_year_budget:
+                    prev_conservation_budget = str(prev_period.conservation_year_budget)
+
+            context.user_data["budget_previous_year_budget"] = prev_year_budget
+            context.user_data["budget_previous_conservation_year_budget"] = prev_conservation_budget
+
+            # Ask for year_budget
+            default_text = ""
+            if prev_year_budget:
+                formatted_budget = format_currency(Decimal(prev_year_budget))
+                default_text = t("bills.previous_value_hint", value=formatted_budget)
+            prompt = f"{t('labels.year_budget_label')}{default_text}"
+
+            keyboard = _build_previous_value_keyboard(prev_year_budget)
+
+            await update.callback_query.edit_message_text(t("bills.starting_budget_workflow"))
+            await update.callback_query.message.reply_text(prompt, reply_markup=keyboard)
+
+            return States.INPUT_MAIN_BUDGET
+
+    except Exception as e:
+        logger.error("Error starting budget workflow: %s", e, exc_info=True)
         return States.END
 
 
@@ -409,7 +596,7 @@ async def handle_electricity_losses(  # noqa: C901
 
         # Calculate total electricity cost
         async with AsyncSessionLocal() as session:
-            electricity_service = ElectricityService(session)
+            bills_service = BillsService(session)
             period_service = ServicePeriodService(session)
 
             start = context.user_data.get("electricity_start")
@@ -418,7 +605,7 @@ async def handle_electricity_losses(  # noqa: C901
             rate = context.user_data.get("electricity_rate")
 
             # calculate_total_electricity is a static method (no await needed)
-            total_cost = ElectricityService.calculate_total_electricity(
+            total_cost = BillsService.calculate_total_electricity(
                 start, end, multiplier, rate, value
             )
 
@@ -428,12 +615,10 @@ async def handle_electricity_losses(  # noqa: C901
             period_id = context.user_data.get("electricity_period_id")
 
             # Get existing electricity bills sum
-            personal_bills_sum = await electricity_service.get_electricity_bills_for_period(
-                period_id
-            )
+            personal_bills_sum = await bills_service.get_electricity_bills_for_period(period_id)
 
-            # Calculate shared cost
-            shared_cost = total_cost - personal_bills_sum
+            # Calculate shared cost (clip to 0 if personal bills exceed total)
+            shared_cost = max(Decimal(0), total_cost - personal_bills_sum)
 
             context.user_data["electricity_personal_bills_sum"] = personal_bills_sum
             context.user_data["electricity_shared_cost"] = shared_cost
@@ -445,7 +630,7 @@ async def handle_electricity_losses(  # noqa: C901
                 return States.END
 
             # Distribute costs
-            owner_shares = await electricity_service.distribute_shared_costs(shared_cost, period)
+            owner_shares = await bills_service.distribute_shared_costs(shared_cost, period)
 
             context.user_data["electricity_owner_shares"] = owner_shares
             context.user_data["electricity_shared_cost"] = shared_cost
@@ -485,16 +670,16 @@ async def _show_electricity_bills_table(update: Update, context: ContextTypes.DE
             else:
                 percentage = 0
 
-            # Format amounts with Russian thousand separators (space-separated)
-            amount_formatted = f"{share.calculated_bill_amount:,.2f}".replace(",", " ")
-            bills_text += f"• {share.user_name}: {percentage:.2f}% → {amount_formatted} ₽\n"
+            # Format amounts with Russian thousand separators
+            amount_formatted = format_currency(share.calculated_bill_amount)
+            bills_text += f"• {share.user_name}: {percentage:.2f}% → {amount_formatted}\n"
 
         # Add summary line with calculated total percentage
-        total_amount_formatted = f"{total_bill_amount:,.2f}".replace(",", " ")
+        total_amount_formatted = format_currency(total_bill_amount)
         total_percentage = (
             (total_share_weight / total_share_weight * 100) if total_share_weight > 0 else 0
         )
-        bills_text += f"\n*{total_percentage:.2f}% → {total_amount_formatted} ₽*"
+        bills_text += f"\n*{total_percentage:.2f}% → {total_amount_formatted}*"
 
         message = t("electricity.confirm_bills_message", bills_table=bills_text)
 
@@ -513,7 +698,7 @@ async def _show_electricity_bills_table(update: Update, context: ContextTypes.DE
         else:
             await update.message.reply_text(message, reply_markup=keyboard, parse_mode="Markdown")
 
-        return States.CONFIRM_BILLS
+        return States.CONFIRM_ELECTRICITY_BILLS
 
     except Exception as e:
         logger.error("Error showing bills table: %s", e, exc_info=True)
@@ -543,6 +728,7 @@ async def handle_electricity_create_bills(  # noqa: C901
         async with AsyncSessionLocal() as session:
             try:
                 period_service = ServicePeriodService(session)
+                bills_service = BillsService(session)
                 owner_shares = context.user_data.get("electricity_owner_shares", [])
                 period_id = context.user_data.get("electricity_period_id")
 
@@ -550,7 +736,7 @@ async def handle_electricity_create_bills(  # noqa: C901
                     await cq.edit_message_text(t("errors.error_processing"))
                     return States.END
 
-                # Update service period with electricity values and close it
+                # Update service period with electricity values
                 admin_id = context.user_data.get("electricity_admin_id")
                 await period_service.update_electricity_data(
                     period_id=period_id,
@@ -559,12 +745,11 @@ async def handle_electricity_create_bills(  # noqa: C901
                     electricity_multiplier=context.user_data.get("electricity_multiplier"),
                     electricity_rate=context.user_data.get("electricity_rate"),
                     electricity_losses=context.user_data.get("electricity_losses"),
-                    close_period=True,
                     actor_id=admin_id,
                 )
 
                 # Create bills for each owner
-                bills_created = await period_service.create_shared_electricity_bills(
+                bills_created = await bills_service.create_shared_electricity_bills(
                     period_id=period_id,
                     owner_shares=owner_shares,
                     actor_id=admin_id,
@@ -573,7 +758,7 @@ async def handle_electricity_create_bills(  # noqa: C901
                 # Confirm success with period name (send as reply to preserve message history)
                 period_name = context.user_data.get("electricity_period_name", t("labels.period"))
                 message = t(
-                    "electricity.bills_created_and_closed",
+                    "electricity.bills_created",
                     count=bills_created,
                     period_name=period_name,
                 )
@@ -603,15 +788,322 @@ async def handle_electricity_create_bills(  # noqa: C901
         return States.END
 
 
+async def handle_budget_main_input(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Handle year_budget (MAIN bills) input."""
+    try:
+        if not update.message or not update.message.text:
+            return States.INPUT_MAIN_BUDGET
+
+        text = update.message.text.strip()
+        value, valid = _validate_positive_decimal(text, allow_zero=False)
+
+        if not valid:
+            await update.message.reply_text(t("errors.invalid_number"))
+            return States.INPUT_MAIN_BUDGET
+
+        context.user_data["budget_year_budget"] = value
+
+        # Ask for conservation_year_budget
+        prev_conservation = context.user_data.get("budget_previous_conservation_year_budget")
+        default_text = ""
+        if prev_conservation:
+            formatted_budget = format_currency(Decimal(prev_conservation))
+            default_text = t("bills.previous_value_hint", value=formatted_budget)
+        prompt = f"{t('labels.conservation_year_budget_label')}{default_text}"
+
+        keyboard = _build_previous_value_keyboard(prev_conservation)
+        await update.message.reply_text(prompt, reply_markup=keyboard)
+
+        return States.INPUT_CONSERVATION_BUDGET
+
+    except Exception as e:
+        logger.error("Error in main budget input: %s", e, exc_info=True)
+        try:
+            await update.message.reply_text(t("errors.error_processing"))
+        except Exception:
+            pass
+        return States.END
+
+
+async def handle_budget_conservation_input(  # noqa: C901
+    update: Update, context: ContextTypes.DEFAULT_TYPE
+) -> int:
+    """Handle conservation_year_budget input and calculate bills."""
+    try:
+        if not update.message or not update.message.text:
+            return States.INPUT_CONSERVATION_BUDGET
+
+        text = update.message.text.strip()
+        value, valid = _validate_positive_decimal(text, allow_zero=False)
+
+        if not valid:
+            await update.message.reply_text(t("errors.invalid_number"))
+            return States.INPUT_CONSERVATION_BUDGET
+
+        context.user_data["budget_conservation_year_budget"] = value
+
+        # Calculate bills
+        async with AsyncSessionLocal() as session:
+            period_service = ServicePeriodService(session)
+            bills_service = BillsService(session)
+
+            period_id = context.user_data.get("budget_period_id")
+            period = await period_service.get_by_id(period_id)
+
+            if not period:
+                await update.message.reply_text(t("errors.error_processing"))
+                return States.END
+
+            year_budget = context.user_data["budget_year_budget"]
+            conservation_year_budget = value
+
+            # Calculate both bill types
+            main_calculations = await bills_service.calculate_main_bills(
+                year_budget, period.period_months
+            )
+            conservation_calculations = await bills_service.calculate_conservation_bills(
+                conservation_year_budget, period.period_months
+            )
+
+            # Enrich with usernames (fetch all active owners for complete list)
+            from sqlalchemy import select
+
+            # Get all user IDs from calculations
+            main_by_user = dict(main_calculations)
+            conservation_by_user = dict(conservation_calculations)
+            all_user_ids_set = set(main_by_user.keys()) | set(conservation_by_user.keys())
+
+            # Fetch all users for mapping
+            stmt = (
+                select(User).where(User.id.in_(all_user_ids_set))
+                if all_user_ids_set
+                else select(User).filter(False)
+            )
+            result = await session.execute(stmt)
+            users = {user.id: user.name for user in result.scalars().all()}
+
+            # Transform into OwnerShare objects with names, including owners with 0 amounts
+            main_shares = [
+                OwnerShare(
+                    user_id=user_id,
+                    user_name=users.get(user_id, f"User #{user_id}"),
+                    total_share_weight=Decimal("0"),  # Not used for budget bills display
+                    calculated_bill_amount=main_by_user.get(user_id, Decimal("0")),
+                )
+                for user_id in sorted(main_by_user.keys()) or all_user_ids_set
+            ]
+            conservation_shares = [
+                OwnerShare(
+                    user_id=user_id,
+                    user_name=users.get(user_id, f"User #{user_id}"),
+                    total_share_weight=Decimal("0"),  # Not used for budget bills display
+                    calculated_bill_amount=conservation_by_user.get(user_id, Decimal("0")),
+                )
+                for user_id in sorted(conservation_by_user.keys())
+            ]
+
+            context.user_data["budget_main_calculations"] = main_shares
+            context.user_data["budget_conservation_calculations"] = conservation_shares
+
+            # Show confirmation table
+            return await _show_budget_bills_table(update, context)
+
+    except Exception as e:
+        logger.error("Error in conservation budget input: %s", e, exc_info=True)
+        try:
+            await update.message.reply_text(t("errors.error_processing"))
+        except Exception:
+            pass
+        return States.END
+
+
+async def _show_budget_bills_table(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Display proposed budget bills table and ask for confirmation."""
+    try:
+        main_shares = context.user_data.get("budget_main_calculations", [])
+        conservation_shares = context.user_data.get("budget_conservation_calculations", [])
+        year_budget = context.user_data.get("budget_year_budget", Decimal("0"))
+        conservation_year_budget = context.user_data.get("budget_conservation_year_budget", Decimal("0"))
+        period_name = context.user_data.get("budget_period_name", "")
+
+        # Get period months from service period
+        async with AsyncSessionLocal() as session:
+            period_service = ServicePeriodService(session)
+            period_id = context.user_data.get("budget_period_id")
+            period = await period_service.get_by_id(period_id)
+            period_months = period.period_months if period else 1
+
+        # Calculate expected totals based on period
+        expected_main_total = (year_budget / 12) * period_months
+        expected_conservation_total = (conservation_year_budget / 12) * period_months
+
+        # Add budget info header (plain text to avoid Markdown parsing issues)
+        budget_info = f"📊 {t('labels.period')}: {period_name} ({period_months} {t('bills.months_short')})\n"
+        budget_info += f"💰 {t('labels.year_budget_label')} ({t('ui.bill_main')}): {format_currency(year_budget)}\n"
+        budget_info += f"💰 {t('labels.conservation_year_budget_label')}: {format_currency(conservation_year_budget)}\n"
+        budget_info += f"📅 {t('bills.expected_period_total')} ({period_months} {t('bills.months_short')}):\n"
+        budget_info += f"  • {t('ui.bill_main')}: {format_currency(expected_main_total)}\n"
+        budget_info += f"  • {t('ui.bill_conservation')}: {format_currency(expected_conservation_total)}\n\n"
+
+        # Build MAIN bills table with usernames and percentages (consistent with electricity format)
+        main_text = t("bills.main_bills_header") + "\n"
+        main_total = Decimal("0")
+        
+        # First pass: calculate total for MAIN
+        for share in main_shares:
+            main_total += share.calculated_bill_amount
+        
+        # Second pass: build formatted table with percentages for MAIN (based on amount, not share_weight)
+        for share in main_shares:
+            if main_total > 0:
+                percentage = (share.calculated_bill_amount / main_total) * 100
+            else:
+                percentage = 0
+            amount_formatted = format_currency(share.calculated_bill_amount)
+            main_text += f"• {share.user_name}: {percentage:.2f}% → {amount_formatted}\n"
+
+        if not main_shares:
+            main_text += t("bills.no_bills") + "\n"
+        else:
+            main_total_formatted = format_currency(main_total)
+            main_text += f"\n*100.00% → {main_total_formatted}*\n"
+
+        # Build CONSERVATION bills table with usernames and percentages (consistent with electricity format)
+        conservation_text = "\n" + t("bills.conservation_bills_header") + "\n"
+        conservation_total = Decimal("0")
+        
+        # First pass: calculate total for CONSERVATION
+        for share in conservation_shares:
+            conservation_total += share.calculated_bill_amount
+        
+        # Second pass: build formatted table with percentages for CONSERVATION (based on amount, not share_weight)
+        for share in conservation_shares:
+            if conservation_total > 0:
+                percentage = (share.calculated_bill_amount / conservation_total) * 100
+            else:
+                percentage = 0
+            amount_formatted = format_currency(share.calculated_bill_amount)
+            conservation_text += f"• {share.user_name}: {percentage:.2f}% → {amount_formatted}\n"
+
+        if not conservation_shares:
+            conservation_text += t("bills.no_bills") + "\n"
+        else:
+            conservation_total_formatted = format_currency(conservation_total)
+            conservation_text += f"\n*100.00% → {conservation_total_formatted}*\n"
+
+        message = budget_info + main_text + conservation_text + f"\n{t('bills.confirm_budget_bills')}"
+
+        buttons = [
+            [
+                InlineKeyboardButton(
+                    t("buttons.create_bills"), callback_data="budget_bills:create"
+                ),
+                InlineKeyboardButton(t("buttons.cancel"), callback_data="budget_bills:cancel"),
+            ]
+        ]
+        keyboard = InlineKeyboardMarkup(buttons)
+
+        await update.message.reply_text(message, parse_mode="Markdown", reply_markup=keyboard)
+
+        return States.CONFIRM_BUDGET_BILLS
+
+    except Exception as e:
+        logger.error("Error showing budget bills table: %s", e, exc_info=True)
+        return States.END
+
+
+async def handle_budget_create_bills(  # noqa: C901
+    update: Update, context: ContextTypes.DEFAULT_TYPE
+) -> int:
+    """Create MAIN and CONSERVATION bills in the database."""
+    try:
+        cq = update.callback_query
+        if not cq or not cq.data:
+            return States.END
+
+        await cq.answer()
+
+        if cq.data == "budget_bills:cancel":
+            await cq.edit_message_text(t("electricity.operation_cancelled"))
+            _clear_budget_context(context)
+            return States.END
+
+        if cq.data != "budget_bills:create":
+            return States.END
+
+        # Create bills
+        async with AsyncSessionLocal() as session:
+            bills_service = BillsService(session)
+            period_service = ServicePeriodService(session)
+
+            period_id = context.user_data.get("budget_period_id")
+            period_name = context.user_data.get("budget_period_name")
+            main_calculations = context.user_data.get("budget_main_calculations", [])
+            conservation_calculations = context.user_data.get(
+                "budget_conservation_calculations", []
+            )
+            year_budget = context.user_data.get("budget_year_budget")
+            conservation_year_budget = context.user_data.get("budget_conservation_year_budget")
+
+            admin_user = context.user_data.get("authorized_admin")
+            actor_id = admin_user.id if admin_user else None
+
+            # Create MAIN bills
+            main_count = await bills_service.create_main_bills(
+                period_id=period_id,
+                calculations=main_calculations,
+                actor_id=actor_id,
+            )
+
+            # Create CONSERVATION bills
+            conservation_count = await bills_service.create_conservation_bills(
+                period_id=period_id,
+                calculations=conservation_calculations,
+                actor_id=actor_id,
+            )
+
+            # Update period with budget data
+            await period_service.update_budget_data(
+                period_id=period_id,
+                year_budget=year_budget,
+                conservation_year_budget=conservation_year_budget,
+                actor_id=actor_id,
+            )
+
+            # Send success message as reply to preserve calculations table
+            message = t(
+                "bills.both_created",
+                main_count=main_count,
+                conservation_count=conservation_count,
+                period_name=period_name,
+            )
+            await cq.message.reply_text(message)
+
+            _clear_budget_context(context)
+            return States.END
+
+    except Exception as e:
+        logger.error("Error in create budget bills handler: %s", e, exc_info=True)
+        try:
+            await cq.edit_message_text(t("errors.error_processing"))
+        except Exception:
+            pass
+        return States.END
+
+
 __all__ = [
     "States",
-    "handle_electricity_bills_command",
-    "handle_electricity_bills_cancel",
-    "handle_electricity_period_selection",
+    "handle_bills_command",
+    "handle_bills_cancel",
+    "handle_period_selection",
+    "handle_action_selection",
     "handle_electricity_meter_start",
     "handle_electricity_meter_end",
     "handle_electricity_multiplier",
     "handle_electricity_rate",
     "handle_electricity_losses",
     "handle_electricity_create_bills",
+    "handle_budget_main_input",
+    "handle_budget_conservation_input",
+    "handle_budget_create_bills",
 ]

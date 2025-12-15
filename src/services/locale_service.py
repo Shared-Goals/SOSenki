@@ -7,9 +7,9 @@ Configuration:
     LOCALE env var (default: ru_RU) - determines currency, number/date formatting
 
 Example:
-    >>> from src.services.locale_service import format_amount, format_local_datetime
-    >>> format_amount(1234.56)
-    '1 234,56 ₽'
+    >>> from src.services.locale_service import format_currency, format_local_datetime
+    >>> format_currency(1234.56)
+    '1 235 ₽'
     >>> format_local_datetime(datetime.now(UTC))
     '8 дек. 2025 г., 12:30:00'
 """
@@ -29,9 +29,6 @@ from babel.dates import (
 )
 from babel.numbers import (
     format_currency as babel_format_currency,
-)
-from babel.numbers import (
-    format_decimal as babel_format_decimal,
 )
 from babel.numbers import (
     get_currency_symbol as babel_get_currency_symbol,
@@ -129,26 +126,32 @@ def get_currency_symbol() -> str:
     return babel_get_currency_symbol(CURRENCY, locale=LOCALE)
 
 
-def format_amount(amount: float | Decimal, include_symbol: bool = True) -> str:
-    """Format monetary amount according to locale.
+def format_currency(amount: float | Decimal, include_symbol: bool = True) -> str:
+    """Format currency amount as integer according to locale.
+
+    Always displays whole numbers without decimal places (e.g., 1000.50 → "1 000 ₽").
 
     Args:
         amount: Numeric amount to format
         include_symbol: Whether to include currency symbol (default True)
 
     Returns:
-        Formatted currency string (e.g., '1 234,56 ₽')
+        Formatted currency string (e.g., '1 000 ₽')
 
     Example:
-        >>> format_amount(1234.56)
-        '1 234,56 ₽'
-        >>> format_amount(1234.56, include_symbol=False)
-        '1 234,56'
+        >>> format_currency(1234.56)
+        '1 000 ₽'
+        >>> format_currency(1234.00)
+        '1 000 ₽'
+        >>> format_currency(1234.56, include_symbol=False)
+        '1 000'
     """
-    if include_symbol:
-        return babel_format_currency(float(amount), CURRENCY, locale=LOCALE)
-    else:
-        return babel_format_decimal(float(amount), locale=LOCALE)
+    # Use pattern #,##0 (not #,##0.00) AND currency_digits=False
+    # to prevent Babel from forcing 2 decimal places
+    pattern = "#,##0 ¤" if include_symbol else "#,##0"
+    return babel_format_currency(
+        float(amount), CURRENCY, format=pattern, locale=LOCALE, currency_digits=False
+    )
 
 
 def format_local_datetime(
@@ -217,7 +220,7 @@ __all__ = [
     "get_timezone_display_name",
     "get_currency_code",
     "get_currency_symbol",
-    "format_amount",
+    "format_currency",
     "format_local_datetime",
     "parse_decimal",
     "get_locale_info",

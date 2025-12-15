@@ -25,6 +25,7 @@ dependencies = [
     "fastmcp>=2.0.0",
     "ollama>=0.4.0",
     "babel>=2.14.0",
+    "python-dateutil>=2.8.0",
 ]
 
 [dependency-groups]

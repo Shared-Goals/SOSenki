@@ -11,6 +11,7 @@ Create Date: 2025-11-12 13:00:00.000000
 """
 
 import sqlalchemy as sa
+
 from alembic import op
 
 # revision identifiers, used by Alembic.
@@ -73,6 +74,13 @@ def upgrade() -> None:
         sa.Column("share_weight", sa.Numeric(precision=10, scale=6), nullable=True),
         sa.Column("is_ready", sa.Boolean(), nullable=False, server_default="1"),
         sa.Column("is_for_tenant", sa.Boolean(), nullable=False, server_default="0"),
+        sa.Column(
+            "is_conservation",
+            sa.Boolean(),
+            nullable=False,
+            server_default="1",
+            comment="Whether property participates in conservation bills calculation",
+        ),
         sa.Column("photo_link", sa.String(length=500), nullable=True),
         sa.Column("sale_price", sa.Numeric(precision=15, scale=2), nullable=True),
         sa.Column(
@@ -105,6 +113,8 @@ def upgrade() -> None:
         sa.PrimaryKeyConstraint("id"),
         sa.Index("ix_properties_owner_id", "owner_id"),
         sa.Index("ix_properties_main_property_id", "main_property_id"),
+        sa.Index("ix_properties_is_active", "is_active"),
+        sa.Index("ix_properties_is_conservation", "is_conservation"),
     )
 
     # Create access_requests table
@@ -249,6 +259,25 @@ def upgrade() -> None:
             sa.Enum("open", "closed", native_enum=False),
             nullable=False,
             server_default="open",
+        ),
+        sa.Column(
+            "period_months",
+            sa.Integer(),
+            nullable=False,
+            server_default="1",
+            comment="Number of months in this period (1-12)",
+        ),
+        sa.Column(
+            "year_budget",
+            sa.Numeric(precision=10, scale=2),
+            nullable=True,
+            comment="Annual budget for MAIN bills (all non-conservation properties)",
+        ),
+        sa.Column(
+            "conservation_year_budget",
+            sa.Numeric(precision=10, scale=2),
+            nullable=True,
+            comment="Annual budget for CONSERVATION bills (conservation-flagged properties)",
         ),
         sa.Column(
             "electricity_start",

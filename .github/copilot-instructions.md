@@ -1,83 +1,198 @@
 # SOSenki Development Guidelines
 
-Last updated: 2025-12-07
+Last updated: 2025-12-16
 
-## Core Stack
+## Architecture Overview
 
-**Backend:**
+**Three-tier system:**
+1. **Telegram Bot** (`src/bot/`) — User-facing interface via commands and callbacks
+2. **Mini App** (`src/static/mini_app/`) — Web UI served inside Telegram (vanilla JS, no frameworks)
+3. **FastAPI Backend** (`src/api/`) — REST endpoints + webhook receiver + MCP server
+
+**Core Stack:**
 - Python 3.11+ (mandatory minimum)
 - FastAPI (async API serving)
-- FastMCP
+- FastMCP (LLM tool server - provides `get_balance`, `list_bills`, `create_service_period`)
 - SQLAlchemy ORM + Alembic (migrations)
 - SQLite (development database)
+- `python-telegram-bot` (async webhooks, bot commands)
+- Ollama (local LLM for `/ask` command tool-calling)
+- Google Sheets API (for seeding/configuration)
+- Vanilla JS (Mini App frontend — no frameworks, keep lightweight)
 
-**Telegram Integration:**
-- `python-telegram-bot` library (async webhooks, bot commands)
-- Telegram Web App API (Mini App client-side integration)
-
-**Frontend (Mini App):**
-- HTML5/CSS3/JavaScript (Telegram Web App)
-- Vanilla JS (no frameworks - keep lightweight)
-
-**External APIs:**
-- Google Sheets API (for seeding, configuration)
-- Google Auth (credentials management)
-
-**Testing & Quality:**
+**Testing:**
 - pytest (unit, contract, integration tests)
 - pytest-asyncio (async test support)
 - pytest-cov (coverage analysis)
 - ruff (linting)
-- mypy (type checking)
 
 ## Project Structure
 
 ```text
 src/
-  api/              # FastAPI endpoints (mini_app.py, webhook.py)
+  api/              # FastAPI endpoints
+    mini_app.py     # Mini App REST API (user context, bills, transactions)
+    webhook.py      # Telegram webhook receiver + FastAPI app setup
+    mcp_server.py   # FastMCP tool server (get_balance, list_bills, create_service_period)
   bot/              # Telegram bot handlers
-  models/           # SQLAlchemy models
-  services/         # Business logic services
-  static/mini_app/  # Frontend (HTML/CSS/JS)
+    handlers/       # Command/callback handlers (/start, /request, admin flows)
+    config.py       # Bot configuration + application builder
+  models/           # SQLAlchemy ORM models (User, Account, Bill, ServicePeriod, etc.)
+  services/         # Business logic layer
+    auth_service.py       # Telegram auth + user context resolution
+    balance_service.py    # Balance calculation logic
+    period_service.py     # ServicePeriod CRUD operations
+    llm_service.py        # Ollama integration + tool execution
+    localizer.py          # i18n (t("category.key") lookup from translations.json)
+  static/mini_app/  # Frontend (HTML/CSS/JS + translations.json)
+  migrations/       # Database DDL via Alembic (no separate versions folder - single 001_initial_schema.py)
 tests/
-  unit/             # Unit tests
-  contract/         # API contract tests
-  integration/      # Full workflow tests
+  unit/             # Unit tests (services, models, utilities)
+  contract/         # API contract tests (endpoint schemas, MCP tools)
+  integration/      # Full workflow tests (end-to-end scenarios)
 seeding/            # Data seeding utilities (Google Sheets integration)
+scripts/            # Maintenance scripts (check_translations.py, analyze_dead_code.py)
 ```
 
-## Python Execution - CRITICAL
+## Python Execution - CRITICAL (NON-NEGOTIABLE)
 
-**For running/testing the application, ALWAYS use:**
-```bash
-make serve &
-```
+### ⚠️ MANDATORY RULES FOR AI AGENTS ⚠️
 
-This single command:
-- Kills any existing process on port 8000 (prevents process chaos)
-- Starts fresh server with your latest code changes
-- Uses `uv run` internally for isolated environment
-- Starts ngrok tunnel automatically if needed
+**NEVER do any of these:**
+- ❌ `kill`, `pkill`, `killall` - NEVER manually kill processes
+- ❌ `uvicorn`, `python -m uvicorn` - NEVER start server directly  
+- ❌ `pytest` without `make test` - NEVER run tests directly
+- ❌ `lsof -i :8000` then kill - NEVER manage ports manually
+- ❌ `python`, `python3` - NEVER execute Python directly
+
+**ALWAYS use these Makefile commands:**
+
+| Task | Command | Notes |
+|------|---------|-------|
+| Start server | `make serve &` | Auto-stops existing, handles port cleanup |
+| Stop server | `make stop` | Stops any running server on port |
+| Run ALL tests | `make test` | Auto-stops server first, runs full suite |
+| Run specific tests | `uv run pytest tests/path -v` | For targeted testing only |
+| Check translations | `make check-i18n` | Find missing or inconsistent translations |
+| Format/lint | `make format` | Auto-fixes linting issues |
+| Reset database | `make seed` | Drops, migrates, seeds |
+| Coverage report | `make coverage` | Full coverage analysis |
+
+### Why This Matters
+
+`make serve` automatically:
+- Runs `make stop` first (kills any existing process on port)
+- Starts fresh server with latest code
+- Uses `uv run` for isolated environment
+- Starts ngrok tunnel if needed
 - Runs in background (`&`) so terminal remains usable
 
-**Never manually start uvicorn, python, or other server processes** - this causes orphaned processes and port conflicts. Always use `make serve &` to ensure clean restarts.
+`make test` automatically:
+- Runs `make stop` first (ensures server is not running)
+- Runs all test suites (unit, contract, integration)
+- Reports failures properly
 
-**For other Python commands, use `uv run`:**
-- ✅ `uv run pytest tests/` (running tests)
-- ✅ `uv run python scripts/script.py` (running scripts)
-- ✅ `uv run ruff check .` (linting)
-- ❌ Never use `python`, `python3`, or direct execution
-- ❌ Never manually activate venv
+**For running scripts, use `uv run`:**
+- ✅ `uv run python scripts/script.py`
+- ✅ `uv run ruff check .`
 
 ## Commands Reference
 
 ```bash
-make serve &  # Run server (ALWAYS use this for testing code changes)
-make test     # Run all tests (unit, contract, integration)
+make serve &  # Start server (MANDATORY for testing code changes)
+make test     # Run all tests (MANDATORY before committing)
 make seed     # Reset database + run migrations + seed data
-make format   # Run ruff linter
+make format   # Run ruff linter with auto-fix
 make coverage # Full coverage report
+make check-i18n # Validate translation completeness (Python/JS/HTML vs translations.json)
 ```
+
+## Key Patterns & Integration Points
+
+### 1. Authentication Flow (`src/services/auth_service.py`)
+
+**Telegram Mini App authentication:**
+- Extract init_data from `Authorization: tma <data>` header or `x-telegram-init-data` header
+- Verify signature using bot token + HMAC-SHA256
+- Extract `telegram_id` from validated init_data
+- Resolve to `AuthorizedUser` context (authenticated user + target user + admin flags)
+
+**Admin context switching:**
+- Admins can access any user's data via `target_telegram_id` in request body
+- `AuthorizedUser.switched_context` flag indicates admin override
+- `authorize_account_access()` helper checks owner/staff permissions with admin bypass
+
+### 2. MCP Server + LLM Integration
+
+**FastMCP tools (src/api/mcp_server.py):**
+- `get_balance(user_id)` — User's current balance
+- `list_bills(user_id, limit)` — Recent bills with status
+- `get_period_info(period_id)` — Service period details
+- `create_service_period(name, start_date, end_date)` — Admin-only period creation
+
+**Ollama service (src/services/llm_service.py):**
+- `/ask` command uses Ollama for tool-calling
+- `get_user_tools()` returns read-only tools (balance, bills, period info)
+- `get_admin_tools()` adds write tools (create_service_period)
+- `execute_tool()` routes to corresponding service methods
+- Role-based filtering prevents non-admins from accessing write tools
+
+**Tool execution pattern:**
+```python
+# In bot handler
+from src.services.llm_service import OllamaService, ToolContext
+
+ctx = ToolContext(user_id=user.id, is_admin=user.is_administrator, session=session)
+ollama = OllamaService(model="qwen2.5:1.5b")
+response = await ollama.chat(query, tools=get_admin_tools() if is_admin else get_user_tools(), ctx=ctx)
+```
+
+### 3. Internationalization (i18n)
+
+**Single source of truth:** `src/static/mini_app/translations.json`
+
+**Usage patterns:**
+- Python: `from src.services.localizer import t; message = t("labels.welcome")`
+- JavaScript: `t("labels.welcome")` (app.js loads translations)
+- HTML: `<span data-i18n="labels.welcome"></span>`
+
+**Flat namespace:** `buttons`, `labels`, `status`, `errors`, `requests`, `admin`, `electricity`, `ui`
+
+**Validation:** `make check-i18n` finds missing/unused keys by scanning:
+- Python files: `t("category.key")` pattern
+- JS files: `t("category.key")` pattern  
+- HTML files: `data-i18n="category.key"` attributes
+
+### 4. Database Schema (YAGNI enforcement)
+
+**Single migration file:** NO separate migration files exist — all schema is in ONE file that gets modified directly
+
+**Role-based access (src/models/user.py):**
+- `is_active` — Primary gate for Mini App access
+- `is_administrator` — Can approve/reject access requests + admin tools
+- `is_owner` — Property owner
+- `is_stakeholder` — Legal contract signed (only valid when `is_owner=True`)
+- `is_investor` — Can access Invest features (requires `is_active=True`)
+- `is_tenant` — Has rental contract
+
+Users can have multiple roles simultaneously via independent boolean flags.
+
+### 5. Testing Strategy
+
+**Contract tests (`tests/contract/`):**
+- API endpoint schemas (Pydantic model validation)
+- MCP tool registration + parameter schemas
+- Response structure validation
+
+**Integration tests (`tests/integration/`):**
+- End-to-end workflows (request approval, period creation)
+- Multi-step bot interactions
+- Database state verification
+
+**Unit tests (`tests/unit/`):**
+- Service layer logic (balance calculation, period validation)
+- Utility functions (localizer, parsers)
+- MCP tool coverage (error handling, date validation)
 
 ## External Library Guidelines
 

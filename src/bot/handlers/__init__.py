@@ -1,18 +1,24 @@
 """Bot handlers package - command, requests, and conversation handlers."""
 
 from src.bot.handlers.admin_bills import (
-    handle_electricity_bills_command,
+    handle_action_selection,
+    handle_bills_cancel,
+    handle_bills_command,
+    handle_budget_conservation_input,
+    handle_budget_create_bills,
+    handle_budget_main_input,
     handle_electricity_create_bills,
     handle_electricity_losses,
     handle_electricity_meter_end,
     handle_electricity_meter_start,
     handle_electricity_multiplier,
-    handle_electricity_period_selection,
     handle_electricity_rate,
+    handle_period_selection,
 )
 from src.bot.handlers.admin_periods import (
+    handle_close_period_confirmation,
     handle_period_action_selection,
-    handle_period_end_date_input,
+    handle_period_months_input,
     handle_period_start_date_input,
     handle_periods_command,
 )
@@ -30,14 +36,20 @@ __all__ = [
     "handle_periods_command",
     "handle_period_action_selection",
     "handle_period_start_date_input",
-    "handle_period_end_date_input",
-    # Admin: Electricity bills
-    "handle_electricity_bills_command",
-    "handle_electricity_period_selection",
+    "handle_period_months_input",
+    "handle_close_period_confirmation",
+    # Admin: Bills management (readings/budget/close)
+    "handle_bills_command",
+    "handle_bills_cancel",
+    "handle_period_selection",
+    "handle_action_selection",
     "handle_electricity_meter_start",
     "handle_electricity_meter_end",
     "handle_electricity_multiplier",
     "handle_electricity_rate",
     "handle_electricity_losses",
     "handle_electricity_create_bills",
+    "handle_budget_main_input",
+    "handle_budget_conservation_input",
+    "handle_budget_create_bills",
 ]

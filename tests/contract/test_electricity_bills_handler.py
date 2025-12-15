@@ -10,7 +10,7 @@ from src.models.property import Property
 from src.models.service_period import PeriodStatus, ServicePeriod
 from src.models.user import User
 from src.services import AsyncSessionLocal
-from src.services.electricity_service import ElectricityService
+from src.services.bills_service import BillsService
 
 
 def get_unique_name(base: str) -> str:
@@ -20,7 +20,7 @@ def get_unique_name(base: str) -> str:
     return f"{base}-{int(time.time() * 1000000) % 1000000}"
 
 
-class TestElectricityService:
+class TestBillsService:
     """Test electricity service calculations."""
 
     def test_calculate_total_electricity_valid(self):
@@ -35,9 +35,7 @@ class TestElectricityService:
 
         # Formula: (200 - 100) × 1.5 × 10 × (1 + 0.2)
         # = 100 × 1.5 × 10 × 1.2 = 1800
-        result = ElectricityService.calculate_total_electricity(
-            start, end, multiplier, rate, losses
-        )
+        result = BillsService.calculate_total_electricity(start, end, multiplier, rate, losses)
 
         assert result == Decimal("1800.00")
 
@@ -50,9 +48,7 @@ class TestElectricityService:
         losses = Decimal("0.2")
 
         # Formula: (193.74 - 123.45) × 200 × 9.22 × 1.2
-        result = ElectricityService.calculate_total_electricity(
-            start, end, multiplier, rate, losses
-        )
+        result = BillsService.calculate_total_electricity(start, end, multiplier, rate, losses)
 
         # Expected: 70.29 × 200 × 9.22 × 1.2 ≈ 15555.86
         assert result > 0
@@ -61,7 +57,7 @@ class TestElectricityService:
     def test_calculate_total_electricity_end_less_than_start(self):
         """Test error when end reading < start reading."""
         with pytest.raises(ValueError, match="must be greater than"):
-            ElectricityService.calculate_total_electricity(
+            BillsService.calculate_total_electricity(
                 Decimal("200"),
                 Decimal("100"),
                 Decimal("1.5"),
@@ -72,7 +68,7 @@ class TestElectricityService:
     def test_calculate_total_electricity_negative_reading(self):
         """Test error with negative meter readings."""
         with pytest.raises(ValueError, match="cannot be negative"):
-            ElectricityService.calculate_total_electricity(
+            BillsService.calculate_total_electricity(
                 Decimal("-10"),
                 Decimal("100"),
                 Decimal("1.5"),
@@ -83,7 +79,7 @@ class TestElectricityService:
     def test_calculate_total_electricity_zero_multiplier(self):
         """Test error with zero or negative multiplier."""
         with pytest.raises(ValueError, match="must be positive"):
-            ElectricityService.calculate_total_electricity(
+            BillsService.calculate_total_electricity(
                 Decimal("100"),
                 Decimal("200"),
                 Decimal("0"),
@@ -94,7 +90,7 @@ class TestElectricityService:
     async def test_get_electricity_bills_for_period_no_bills(self):
         """Test querying electricity bills when none exist."""
         async with AsyncSessionLocal() as session:
-            service = ElectricityService(session)
+            service = BillsService(session)
 
             # Create a service period with no bills
             period = ServicePeriod(
@@ -121,7 +117,7 @@ class TestElectricityService:
     async def test_calculate_owner_shares_basic(self):
         """Test aggregation of owner shares by weight."""
         async with AsyncSessionLocal() as session:
-            service = ElectricityService(session)
+            service = BillsService(session)
 
             # Create users and properties
             user1 = User(name=get_unique_name("owner"), is_owner=True)
@@ -164,7 +160,7 @@ class TestElectricityService:
     async def test_distribute_shared_costs_zero_cost(self):
         """Test distribution with zero cost."""
         async with AsyncSessionLocal() as session:
-            service = ElectricityService(session)
+            service = BillsService(session)
 
             period = ServicePeriod(
                 name=get_unique_name("test-period-5"),
@@ -187,7 +183,7 @@ class TestElectricityService:
         # Note: Real service periods exist in seeded database
         # Simplified test just validates the query works
         async with AsyncSessionLocal() as session:
-            service = ElectricityService(session)
+            service = BillsService(session)
             result = await service.get_previous_service_period()
             # Just verify it returns a ServicePeriod or None
             assert result is None or isinstance(result, ServicePeriod)
@@ -219,7 +215,7 @@ class TestElectricityBillsIntegration:
             await session.commit()
 
             # Calculate total (static method - no await needed)
-            total = ElectricityService.calculate_total_electricity(
+            total = BillsService.calculate_total_electricity(
                 period.electricity_start,
                 period.electricity_end,
                 period.electricity_multiplier,

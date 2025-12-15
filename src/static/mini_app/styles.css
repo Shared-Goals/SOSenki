@@ -1093,6 +1093,40 @@ body {
     font-size: var(--font-size-base);
 }
 
+/* Bills grouped by service periods */
+.bills-period-section {
+    margin-bottom: var(--spacing-sm);
+}
+
+.bills-period-header {
+    font-weight: 600;
+    color: var(--color-text);
+    margin-bottom: var(--spacing-xs);
+    padding: var(--spacing-xs) 0;
+    border-bottom: 1px solid var(--color-border);
+}
+
+.bills-period-bills {
+    margin-top: var(--spacing-xs);
+}
+
+.bills-period-bills .bill-item {
+    margin-bottom: var(--spacing-xs);
+}
+
+.bills-period-bills .bill-item:last-child {
+    margin-bottom: 0;
+}
+
+.bills-period-sum {
+    margin-top: var(--spacing-xs);
+    padding-top: var(--spacing-xs);
+    border-top: 1px solid var(--color-border);
+    font-weight: 600;
+    color: var(--color-text);
+    text-align: right;
+}
+
 /* ==========================================================================
    BALANCE SECTION
    ========================================================================== */

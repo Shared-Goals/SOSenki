@@ -96,6 +96,28 @@ class SeedingConfig:
             "code_to_type"
         ]
 
+    def get_property_is_conservation_mapping(self) -> Dict[str, bool]:
+        """Get code-to-is_conservation mapping for additional properties.
+
+        Returns:
+            Dictionary mapping property codes to is_conservation boolean values.
+            Example: {"24": False, "25": False, "26": False} marks codes 24-26 as non-conservation.
+        """
+        return self._config["schemas"]["properties"]["additional"]["transformations"].get(
+            "code_to_is_conservation", {}
+        )
+
+    def get_main_property_is_conservation_mapping(self) -> Dict[str, bool]:
+        """Get code-to-is_conservation mapping for main properties.
+
+        Returns:
+            Dictionary mapping property codes to is_conservation boolean values.
+            Example: {"24": False} marks code 24 as non-conservation.
+        """
+        return self._config["schemas"]["properties"]["transformations"].get(
+            "code_to_is_conservation", {}
+        )
+
     def get_property_default_type(self) -> str:
         """Get default type for additional properties not in mapping."""
         return self._config["schemas"]["properties"]["additional"]["defaults"]["default_type"]

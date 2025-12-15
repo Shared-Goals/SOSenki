@@ -92,8 +92,14 @@ def parse_property_row(row_dict: Dict[str, str], owner: User) -> List[Dict]:
             "is_active": True,
             "main_property_id": None,  # Main property has no parent
         }
+
+        # Apply is_conservation transformation if code is in mapping, else use default
+        main_is_conservation_mapping = config.get_main_property_is_conservation_mapping()
+        is_conservation = main_is_conservation_mapping.get(property_name, True)
+        main_property["is_conservation"] = is_conservation
+
         properties.append(main_property)
-        logger.debug(f"Parsed main property: {property_name}")
+        logger.debug(f"Parsed main property: {property_name} (is_conservation={is_conservation})")
 
         # PHASE 3: Apply transformations (additional properties from "Доп" column)
         dop_source_column = config.get_dop_source_column()
@@ -104,6 +110,7 @@ def parse_property_row(row_dict: Dict[str, str], owner: User) -> List[Dict]:
 
             # Get type mapping and default type for additional properties
             type_mapping = config.get_property_type_mapping()
+            is_conservation_mapping = config.get_property_is_conservation_mapping()
             default_type = config.get_property_default_type()
 
             for code in dop_codes:
@@ -112,6 +119,9 @@ def parse_property_row(row_dict: Dict[str, str], owner: User) -> List[Dict]:
 
                 # Map code to property type
                 property_type = type_mapping.get(code, default_type)
+
+                # Apply is_conservation transformation if code is in mapping, else use default
+                is_conservation = is_conservation_mapping.get(code, True)
 
                 # Additional property attributes (selective inheritance)
                 additional_property = {
@@ -124,11 +134,12 @@ def parse_property_row(row_dict: Dict[str, str], owner: User) -> List[Dict]:
                     "photo_link": None,
                     "sale_price": None,
                     "is_active": True,
+                    "is_conservation": is_conservation,
                     "main_property_id": None,  # Will be set in create_properties
                 }
                 properties.append(additional_property)
                 logger.debug(
-                    f"Parsed additional property from {dop_source_column}: {code} → {property_type}"
+                    f"Parsed additional property from {dop_source_column}: {code} → {property_type} (is_conservation={is_conservation})"
                 )
 
         return properties

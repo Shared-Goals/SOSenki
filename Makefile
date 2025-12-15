@@ -1,8 +1,7 @@
 # ============================================================================
 # Roadmap (commit-based milestones)
 # ============================================================================
-#
-# TODO feat: Limit /request as the only command for new users
+# TODO Make translations flat
 # TODO agent: Add role-based tool filtering
 #            - User tools: get_balance, list_bills, get_period_info (read-only)
 #            - Admin tools: + create_service_period (write)
@@ -35,7 +34,7 @@ export TELEGRAM_BOT_NAME
 export TELEGRAM_MINI_APP_ID
 export ENV
 
-.PHONY: help seed test lint format sync install preflight serve db-reset backup restore dead-code coverage coverage-seeding check-i18n clean
+.PHONY: help seed test lint format sync install preflight serve stop db-reset backup restore dead-code coverage coverage-seeding check-i18n clean
 
 help:
 	@echo "SOSenki Commands"
@@ -45,8 +44,9 @@ help:
 	@echo ""
 	@echo "Development:"
 	@echo "  make sync              Install Python dependencies via uv"
-	@echo "  make serve             Run bot + mini app with webhook (starts ngrok if needed)"
-	@echo "  make test              Run all tests (contract, integration, unit)"
+	@echo "  make serve             Run bot + mini app with webhook (auto-stops existing)"
+	@echo "  make stop              Stop any running server on configured port"
+	@echo "  make test              Run all tests (auto-stops server first)"
 	@echo "  make test-seeding      Run seeding tests only"
 	@echo "  make lint              Check code style with ruff"
 	@echo "  make format            Format code with ruff and prettier"
@@ -196,7 +196,7 @@ install:
 sync:
 	uv sync
 
-test:
+test: stop
 	uv run pytest tests/ -v
 
 test-seeding:
@@ -280,10 +280,22 @@ coverage:
 
 # Local Development with Webhook Mode
 
+# Stop any running server on the configured port
+# This is automatically called by serve and test targets
+stop:
+	@PORT=$$(grep '^PORT=' .env 2>/dev/null | cut -d'=' -f2 || echo "8000"); \
+	if lsof -Pi :$$PORT -sTCP:LISTEN -t >/dev/null 2>&1; then \
+		echo "⚠️  Port $$PORT is in use. Stopping existing server..."; \
+		PID=$$(lsof -t -i :$$PORT); \
+		kill -9 $$PID 2>/dev/null || true; \
+		echo "✅ Stopped process PID $$PID"; \
+		sleep 1; \
+	fi
+
 # Run bot + mini app in webhook mode with ngrok tunnel
 # Automatically starts Ollama (if not running), ngrok tunnel, and loads environment variables (dynamic + static from .env)
 # Kills any existing process on configured port if address is already in use
-serve:
+serve: stop
 	@echo "🔍 Checking Ollama service..."
 	@if ! pgrep -f "ollama serve" > /dev/null; then \
 		echo "❌ Ollama is not running. Starting..."; \
@@ -291,14 +303,6 @@ serve:
 		sleep 2; \
 	else \
 		echo "✅ Ollama is running"; \
-	fi
-	@PORT=$$(grep '^PORT=' .env 2>/dev/null | cut -d'=' -f2 || echo "8000"); \
-	if lsof -Pi :$$PORT -sTCP:LISTEN -t >/dev/null 2>&1; then \
-		echo "⚠️  Port $$PORT is already in use. Killing existing process..."; \
-		PID=$$(lsof -t -i :$$PORT); \
-		kill -9 $$PID 2>/dev/null || true; \
-		echo "✓ Killed process PID $$PID"; \
-		sleep 1; \
 	fi
 	@bash scripts/setup-environment.sh && \
 	echo "Starting bot + mini app in webhook mode..." && \

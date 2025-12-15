@@ -10,8 +10,8 @@ from telegram.ext import ContextTypes
 
 from src.bot.handlers.admin_bills import (
     States,
-    handle_electricity_bills_cancel,
-    handle_electricity_bills_command,
+    handle_bills_cancel,
+    handle_bills_command,
     handle_electricity_losses,
     handle_electricity_meter_end,
     handle_electricity_meter_start,
@@ -64,11 +64,11 @@ def mock_admin_user():
 
 
 @pytest.mark.asyncio
-async def test_handle_electricity_bills_cancel():
+async def test_handle_bills_cancel():
     """Test cancel handler clears context and returns -1."""
     context = AsyncMock(spec=ContextTypes.DEFAULT_TYPE)
     context.user_data = {
-        "electricity_admin_id": 123,
+        "bills_admin_id": 123,
         "electricity_period_id": 456,
         "electricity_start": Decimal("100"),
         "electricity_end": Decimal("200"),
@@ -81,45 +81,43 @@ async def test_handle_electricity_bills_cancel():
         "electricity_previous_losses": "0.2",
     }
 
-    result = await handle_electricity_bills_cancel(None, context)
+    result = await handle_bills_cancel(None, context)
 
     assert result == States.END
     assert context.user_data == {}
 
 
 @pytest.mark.asyncio
-async def test_handle_electricity_bills_command_not_authorized(mock_update, mock_context):
+async def test_handle_bills_command_not_authorized(mock_update, mock_context):
     """Test command handler when user is not authorized."""
     with patch("src.bot.handlers.admin_bills.verify_admin_authorization", return_value=None):
-        result = await handle_electricity_bills_command(mock_update, mock_context)
+        result = await handle_bills_command(mock_update, mock_context)
 
     assert result == States.END
     mock_update.message.reply_text.assert_called_once()
 
 
 @pytest.mark.asyncio
-async def test_handle_electricity_bills_command_authorized(
-    mock_update, mock_context, mock_admin_user
-):
+async def test_handle_bills_command_authorized(mock_update, mock_context, mock_admin_user):
     """Test command handler when user is authorized."""
     with patch(
         "src.bot.handlers.admin_bills.verify_admin_authorization", return_value=mock_admin_user
     ):
-        result = await handle_electricity_bills_command(mock_update, mock_context)
+        result = await handle_bills_command(mock_update, mock_context)
 
     assert result == States.SELECT_PERIOD
     assert mock_context.user_data["authorized_admin"] == mock_admin_user
-    assert mock_context.user_data["electricity_admin_id"] == 123456789
+    assert mock_context.user_data["bills_admin_id"] == 123456789
     mock_update.message.reply_text.assert_called_once()
 
 
 @pytest.mark.asyncio
-async def test_handle_electricity_bills_command_no_message(mock_context):
+async def test_handle_bills_command_no_message(mock_context):
     """Test command handler without message."""
     update = AsyncMock(spec=Update)
     update.message = None
 
-    result = await handle_electricity_bills_command(update, mock_context)
+    result = await handle_bills_command(update, mock_context)
 
     assert result == States.END
 
@@ -249,11 +247,13 @@ async def test_handle_electricity_losses_valid(mock_update, mock_context):
     mock_async_session.__aexit__ = AsyncMock(return_value=None)
 
     with patch("src.bot.handlers.admin_bills.AsyncSessionLocal", return_value=mock_async_session):
-        with patch("src.bot.handlers.admin_bills.ElectricityService") as mock_elec_service:
-            mock_elec_inst = MagicMock()
-            mock_elec_service.return_value = mock_elec_inst
-            mock_elec_inst.get_electricity_bills_for_period = AsyncMock(return_value=Decimal("0"))
-            mock_elec_inst.distribute_shared_costs = AsyncMock(return_value=[])
+        with patch("src.bot.handlers.admin_bills.BillsService") as mock_bills_service:
+            mock_bills_inst = MagicMock()
+            mock_bills_service.return_value = mock_bills_inst
+            mock_bills_inst.get_electricity_bills_for_period = AsyncMock(return_value=Decimal("0"))
+            mock_bills_inst.distribute_shared_costs = AsyncMock(return_value=[])
+            # Mock the static method: calculate_total_electricity
+            mock_bills_service.calculate_total_electricity = MagicMock(return_value=Decimal("550"))
             with patch("src.bot.handlers.admin_bills.ServicePeriodService") as mock_period_service:
                 mock_service_inst = MagicMock()
                 mock_period_service.return_value = mock_service_inst
@@ -261,7 +261,7 @@ async def test_handle_electricity_losses_valid(mock_update, mock_context):
 
                 result = await handle_electricity_losses(mock_update, mock_context)
 
-    assert result == States.CONFIRM_BILLS
+    assert result == States.CONFIRM_ELECTRICITY_BILLS
     assert mock_context.user_data["electricity_losses"] == Decimal("0.2")
 
 
@@ -379,11 +379,13 @@ async def test_handle_electricity_losses_comma_decimal(mock_update, mock_context
     mock_async_session.__aexit__ = AsyncMock(return_value=None)
 
     with patch("src.bot.handlers.admin_bills.AsyncSessionLocal", return_value=mock_async_session):
-        with patch("src.bot.handlers.admin_bills.ElectricityService") as mock_elec_service:
-            mock_elec_inst = MagicMock()
-            mock_elec_service.return_value = mock_elec_inst
-            mock_elec_inst.get_electricity_bills_for_period = AsyncMock(return_value=Decimal("0"))
-            mock_elec_inst.distribute_shared_costs = AsyncMock(return_value=[])
+        with patch("src.bot.handlers.admin_bills.BillsService") as mock_bills_service:
+            mock_bills_inst = MagicMock()
+            mock_bills_service.return_value = mock_bills_inst
+            mock_bills_inst.get_electricity_bills_for_period = AsyncMock(return_value=Decimal("0"))
+            mock_bills_inst.distribute_shared_costs = AsyncMock(return_value=[])
+            # Mock the static method: calculate_total_electricity
+            mock_bills_service.calculate_total_electricity = MagicMock(return_value=Decimal("550"))
             with patch("src.bot.handlers.admin_bills.ServicePeriodService") as mock_period_service:
                 mock_service_inst = MagicMock()
                 mock_period_service.return_value = mock_service_inst
@@ -391,5 +393,5 @@ async def test_handle_electricity_losses_comma_decimal(mock_update, mock_context
 
                 result = await handle_electricity_losses(mock_update, mock_context)
 
-    assert result == States.CONFIRM_BILLS
+    assert result == States.CONFIRM_ELECTRICITY_BILLS
     assert mock_context.user_data["electricity_losses"] == Decimal("0.2")

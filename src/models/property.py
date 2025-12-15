@@ -38,8 +38,9 @@ class Property(Base, BaseModel):
     )
 
     # Allocation weight for proportional distribution (e.g., 2.5, 1.0)
+    # Using Numeric(10, 4) to preserve precision for accurate bill calculations
     share_weight: Mapped[Decimal | None] = mapped_column(
-        Numeric(10, 2),
+        Numeric(10, 6),
         nullable=True,
     )
 
@@ -66,6 +67,15 @@ class Property(Base, BaseModel):
         default=False,
         nullable=False,
         comment="Whether property is for tenant",
+    )
+
+    # Conservation participation flag for conservation bills
+    is_conservation: Mapped[bool] = mapped_column(
+        Boolean,
+        default=True,
+        nullable=False,
+        index=True,
+        comment="Whether property participates in conservation bills calculation",
     )
 
     # Property photo gallery URL

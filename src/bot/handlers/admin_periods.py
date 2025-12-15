@@ -27,14 +27,14 @@ class States:
     END = -1
     SELECT_ACTION = 10
     INPUT_START_DATE = 11
-    INPUT_END_DATE = 12
+    INPUT_PERIOD_MONTHS = 12
 
 
 # Context data keys
 _PERIODS_KEYS = [
     "periods_admin_id",
     "period_start_date",
-    "period_end_date",
+    "period_months",
     "period_id",
     "period_name",
     "authorized_admin",
@@ -120,6 +120,7 @@ async def handle_periods_command(update: Update, context: ContextTypes.DEFAULT_T
         buttons = [
             [InlineKeyboardButton(t("labels.new_period"), callback_data="period_action:create")],
             [InlineKeyboardButton(t("labels.view_periods"), callback_data="period_action:view")],
+            [InlineKeyboardButton(t("labels.close_period"), callback_data="period_action:close")],
         ]
         keyboard = InlineKeyboardMarkup(buttons)
 
@@ -145,8 +146,10 @@ async def handle_periods_command(update: Update, context: ContextTypes.DEFAULT_T
         return States.END
 
 
-async def handle_period_action_selection(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Handle period action selection: create new period or view existing periods."""
+async def handle_period_action_selection(  # noqa: C901
+    update: Update, context: ContextTypes.DEFAULT_TYPE
+) -> int:
+    """Handle period action selection: create new period, view existing periods, or close period."""
     try:
         cq = update.callback_query
         if not cq or not cq.data:
@@ -198,6 +201,34 @@ async def handle_period_action_selection(update: Update, context: ContextTypes.D
                 await cq.edit_message_text(periods_text, parse_mode="Markdown")
                 return States.END
 
+        elif cq.data == "period_action:close":
+            # Show list of open periods to close
+            async with AsyncSessionLocal() as session:
+                period_service = ServicePeriodService(session)
+                open_periods = await period_service.get_open_periods()
+
+                if not open_periods:
+                    await cq.edit_message_text(t("labels.no_open_periods_to_close"))
+                    return States.END
+
+                # Build buttons for each open period
+                buttons = []
+                for period in open_periods:
+                    buttons.append(
+                        [
+                            InlineKeyboardButton(
+                                f"🟢 {period.name}", callback_data=f"close_period:{period.id}"
+                            )
+                        ]
+                    )
+                keyboard = InlineKeyboardMarkup(buttons)
+
+                await cq.edit_message_text(
+                    t("labels.select_period_to_close"),
+                    reply_markup=keyboard,
+                )
+                return States.END
+
         else:
             logger.warning("Unknown period action: %s", cq.data)
             await cq.edit_message_text(t("errors.error_processing"))
@@ -215,7 +246,7 @@ async def handle_period_action_selection(update: Update, context: ContextTypes.D
 async def handle_period_start_date_input(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Handle start date input for new service period.
 
-    Validates date format (DD.MM.YYYY).
+    Validates date format (DD.MM.YYYY) and that date is first day of month.
     """
     try:
         if not update.message or not update.message.text:
@@ -228,10 +259,19 @@ async def handle_period_start_date_input(update: Update, context: ContextTypes.D
             await update.message.reply_text(t("errors.invalid_date_format"))
             return States.INPUT_START_DATE
 
+        # Validate that date is first day of month
+        if value.day != 1:
+            await update.message.reply_text(
+                t("errors.invalid_date_format")
+                + "\n"
+                + t("labels.start_date_must_be_first_of_month")
+            )
+            return States.INPUT_START_DATE
+
         context.user_data["period_start_date"] = value
 
-        await update.message.reply_text(t("labels.period_end_date_prompt"))
-        return States.INPUT_END_DATE
+        await update.message.reply_text(t("labels.period_months_prompt"))
+        return States.INPUT_PERIOD_MONTHS
 
     except Exception as e:
         logger.error("Error in period start date input: %s", e, exc_info=True)
@@ -242,45 +282,58 @@ async def handle_period_start_date_input(update: Update, context: ContextTypes.D
         return States.END
 
 
-async def handle_period_end_date_input(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Handle end date input for new service period.
+async def handle_period_months_input(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Handle period months input for new service period.
 
-    Validates that end_date > start_date and creates ServicePeriod in database.
+    Validates that input is an integer between 1 and 12.
+    Creates ServicePeriod with specified period_months duration.
     Status is set to "open" by design.
     """
     try:
         if not update.message or not update.message.text:
-            return States.INPUT_END_DATE
+            return States.INPUT_PERIOD_MONTHS
 
         text = update.message.text.strip()
-        value, valid = _validate_date(text)
 
-        if not valid:
-            await update.message.reply_text(t("errors.invalid_date_format"))
-            return States.INPUT_END_DATE
+        # Parse and validate period_months
+        try:
+            period_months = int(text)
+        except ValueError:
+            await update.message.reply_text(t("errors.invalid_period_months_format"))
+            return States.INPUT_PERIOD_MONTHS
+
+        if not (1 <= period_months <= 12):
+            await update.message.reply_text(t("errors.period_months_out_of_range"))
+            return States.INPUT_PERIOD_MONTHS
 
         start_date = context.user_data.get("period_start_date")
-        if value <= start_date:
-            await update.message.reply_text(t("errors.end_date_before_start"))
-            return States.INPUT_END_DATE
+        if not start_date:
+            logger.warning("Missing period_start_date in context")
+            await update.message.reply_text(t("errors.error_processing"))
+            return States.END
 
-        context.user_data["period_end_date"] = value
+        context.user_data["period_months"] = period_months
 
         # Create ServicePeriod via service
         async with AsyncSessionLocal() as session:
             period_service = ServicePeriodService(session)
             admin_id = context.user_data.get("periods_admin_id")
-            new_period = await period_service.create_period(start_date, value, actor_id=admin_id)
+            new_period = await period_service.create_period(
+                start_date,
+                period_months=period_months,
+                actor_id=admin_id,
+            )
 
             context.user_data["period_id"] = new_period.id
             context.user_data["period_name"] = new_period.name
 
             logger.info(
-                "Created new service period: id=%d, name=%s, dates=%s to %s, admin_id=%d",
+                "Created new service period: id=%d, name=%s, dates=%s to %s, period_months=%d, admin_id=%d",
                 new_period.id,
                 new_period.name,
                 start_date,
-                value,
+                new_period.end_date,
+                period_months,
                 context.user_data.get("periods_admin_id"),
             )
 
@@ -296,9 +349,68 @@ async def handle_period_end_date_input(update: Update, context: ContextTypes.DEF
             return States.END
 
     except Exception as e:
-        logger.error("Error in period end date input: %s", e, exc_info=True)
+        logger.error("Error in period months input: %s", e, exc_info=True)
         try:
             await update.message.reply_text(t("errors.error_processing"))
+        except Exception:
+            pass
+        return States.END
+
+
+async def handle_close_period_confirmation(
+    update: Update, context: ContextTypes.DEFAULT_TYPE
+) -> int:
+    """Handle period closure confirmation.
+
+    Close selected period without generating any bills.
+    """
+    try:
+        cq = update.callback_query
+        if not cq or not cq.data:
+            return States.END
+
+        await cq.answer()
+
+        # Extract period ID
+        try:
+            period_id = int(cq.data.split(":")[1])
+        except (IndexError, ValueError):
+            logger.warning("Invalid close period callback data: %s", cq.data)
+            await cq.edit_message_text(t("errors.error_processing"))
+            return States.END
+
+        async with AsyncSessionLocal() as session:
+            period_service = ServicePeriodService(session)
+            period = await period_service.get_by_id(period_id)
+
+            if not period:
+                await cq.edit_message_text(t("errors.error_processing"))
+                return States.END
+
+            admin_user = context.user_data.get("authorized_admin")
+            actor_id = admin_user.id if admin_user else None
+
+            # Close the period using service method
+            success = await period_service.close_period(
+                period_id=period_id,
+                actor_id=actor_id,
+            )
+
+            if not success:
+                await cq.edit_message_text(t("errors.error_processing"))
+                return States.END
+
+            await cq.edit_message_text(t("bills.period_closed", period_name=period.name))
+
+            # Clear any context
+            _clear_periods_context(context)
+
+            return States.END
+
+    except Exception as e:
+        logger.error("Error closing period: %s", e, exc_info=True)
+        try:
+            await update.callback_query.edit_message_text(t("errors.error_processing"))
         except Exception:
             pass
         return States.END
@@ -310,5 +422,6 @@ __all__ = [
     "handle_periods_cancel",
     "handle_period_action_selection",
     "handle_period_start_date_input",
-    "handle_period_end_date_input",
+    "handle_period_months_input",
+    "handle_close_period_confirmation",
 ]

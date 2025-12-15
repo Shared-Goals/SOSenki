@@ -5,6 +5,7 @@ replacing dual Debit + Credit logic.
 """
 
 import logging
+from decimal import Decimal
 from typing import Dict, List
 
 from sqlalchemy.orm import Session
@@ -15,6 +16,52 @@ from src.models.budget_item import AllocationStrategy, BudgetItem
 from src.models.service_period import ServicePeriod
 from src.models.transaction import Transaction
 from src.models.user import User
+
+
+def _parse_decimal_field(value: str | None) -> Decimal | None:
+    """Parse a string value to Decimal or return None if not provided."""
+    return Decimal(str(value)) if value is not None else None
+
+
+def _update_period_fields(
+    period: ServicePeriod,
+    electricity_start: str | None,
+    electricity_end: str | None,
+    electricity_multiplier: str | None,
+    electricity_rate: str | None,
+    electricity_losses: str | None,
+    status: str | None,
+    period_months: int | None,
+    year_budget: str | None,
+    conservation_year_budget: str | None,
+) -> None:
+    """Update ServicePeriod fields from provided values."""
+    elec_start = _parse_decimal_field(electricity_start)
+    elec_end = _parse_decimal_field(electricity_end)
+    elec_multiplier = _parse_decimal_field(electricity_multiplier)
+    elec_rate = _parse_decimal_field(electricity_rate)
+    elec_losses = _parse_decimal_field(electricity_losses)
+    year_budget_val = _parse_decimal_field(year_budget)
+    conservation_year_budget_val = _parse_decimal_field(conservation_year_budget)
+
+    if electricity_start is not None:
+        period.electricity_start = elec_start
+    if electricity_end is not None:
+        period.electricity_end = elec_end
+    if electricity_multiplier is not None:
+        period.electricity_multiplier = elec_multiplier
+    if electricity_rate is not None:
+        period.electricity_rate = elec_rate
+    if electricity_losses is not None:
+        period.electricity_losses = elec_losses
+    if status is not None:
+        period.status = status
+    if period_months is not None:
+        period.period_months = period_months
+    if year_budget_val is not None:
+        period.year_budget = year_budget_val
+    if conservation_year_budget_val is not None:
+        period.conservation_year_budget = conservation_year_budget_val
 
 
 def get_or_create_service_period(
@@ -28,6 +75,9 @@ def get_or_create_service_period(
     electricity_rate: str | None = None,
     electricity_losses: str | None = None,
     status: str | None = None,
+    period_months: int | None = None,
+    year_budget: str | None = None,
+    conservation_year_budget: str | None = None,
 ) -> ServicePeriod:
     """Get existing service period or create new one.
 
@@ -42,6 +92,9 @@ def get_or_create_service_period(
         electricity_rate: Rate per kWh (optional)
         electricity_losses: Transmission losses ratio (optional)
         status: Period status - "open" or "closed" (optional, defaults to "open")
+        period_months: Duration in months (1-12) (optional)
+        year_budget: Annual MAIN bill budget (optional)
+        conservation_year_budget: Annual CONSERVATION bill budget (optional)
 
     Returns:
         ServicePeriod instance
@@ -49,7 +102,7 @@ def get_or_create_service_period(
     Raises:
         DataValidationError: On creation failure
     """
-    from decimal import Decimal
+    from datetime import datetime as dt
 
     logger = logging.getLogger("sosenki.seeding.transactions")
 
@@ -58,35 +111,33 @@ def get_or_create_service_period(
         period = session.query(ServicePeriod).filter(ServicePeriod.name == period_name).first()
 
         # Parse dates
-        from datetime import datetime as dt
-
         start_date = dt.strptime(start_date_str, "%d.%m.%Y").date()
         end_date = dt.strptime(end_date_str, "%d.%m.%Y").date()
 
-        # Parse electricity fields (convert to Decimal if provided)
-        elec_start = Decimal(str(electricity_start)) if electricity_start is not None else None
-        elec_end = Decimal(str(electricity_end)) if electricity_end is not None else None
-        elec_multiplier = (
-            Decimal(str(electricity_multiplier)) if electricity_multiplier is not None else None
-        )
-        elec_rate = Decimal(str(electricity_rate)) if electricity_rate is not None else None
-        elec_losses = Decimal(str(electricity_losses)) if electricity_losses is not None else None
+        # Parse electricity and budget fields
+        elec_start = _parse_decimal_field(electricity_start)
+        elec_end = _parse_decimal_field(electricity_end)
+        elec_multiplier = _parse_decimal_field(electricity_multiplier)
+        elec_rate = _parse_decimal_field(electricity_rate)
+        elec_losses = _parse_decimal_field(electricity_losses)
+        year_budget_val = _parse_decimal_field(year_budget)
+        conservation_year_budget_val = _parse_decimal_field(conservation_year_budget)
 
         if period:
             logger.debug(f"Found existing service period: {period_name}")
-            # Update electricity fields if provided
-            if electricity_start is not None:
-                period.electricity_start = elec_start
-            if electricity_end is not None:
-                period.electricity_end = elec_end
-            if electricity_multiplier is not None:
-                period.electricity_multiplier = elec_multiplier
-            if electricity_rate is not None:
-                period.electricity_rate = elec_rate
-            if electricity_losses is not None:
-                period.electricity_losses = elec_losses
-            if status is not None:
-                period.status = status
+            # Update fields if provided
+            _update_period_fields(
+                period,
+                electricity_start,
+                electricity_end,
+                electricity_multiplier,
+                electricity_rate,
+                electricity_losses,
+                status,
+                period_months,
+                year_budget,
+                conservation_year_budget,
+            )
             return period
 
         # Create new period
@@ -100,6 +151,9 @@ def get_or_create_service_period(
             electricity_rate=elec_rate,
             electricity_losses=elec_losses,
             status=status or "open",
+            period_months=period_months,
+            year_budget=year_budget_val,
+            conservation_year_budget=conservation_year_budget_val,
         )
         session.add(period)
         session.flush()

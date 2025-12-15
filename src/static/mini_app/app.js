@@ -83,19 +83,14 @@ function applyTranslations() {
     document.querySelectorAll('[data-i18n]').forEach(el => {
         const key = el.getAttribute('data-i18n');
         const translated = t(key);
-        // Only update if translation exists (not returning the key as fallback)
-        if (translated !== key) {
-            el.textContent = translated;
-        }
+        el.textContent = translated;
     });
     
     // Handle data-i18n-html (innerHTML for elements with HTML content like <code>)
     document.querySelectorAll('[data-i18n-html]').forEach(el => {
         const key = el.getAttribute('data-i18n-html');
         const translated = t(key);
-        if (translated !== key) {
-            el.innerHTML = translated;
-        }
+        el.innerHTML = translated;
     });
 }
 
@@ -511,13 +506,54 @@ function formatDate(dateString) {
 }
 
 /**
- * Format amount with 2 decimal places and locale-specific formatting
+ * Format currency amount with locale-specific formatting
+ * Single unified function for all currency displays throughout the app
+ * 
+ * @param {number} amount - Amount to format
+ * @param {Object} options - Formatting options
+ * @param {boolean} options.includeSymbol - Whether to include currency symbol (default true)
+ * @param {string} options.symbolPosition - Symbol position: 'after' or 'before' (default 'after')
+ * @param {number} options.minimumDecimals - Minimum decimal places (default 0)
+ * @param {number} options.maximumDecimals - Maximum decimal places (default 0)
+ * @param {string} options.locale - Locale code (default 'ru-RU')
+ * @param {string} options.currency - Currency code (default 'RUB')
+ * @returns {string} Formatted currency string (e.g., "4 658 480 ₽")
+ * 
+ * @example
+ * formatCurrency(1234.56)                    // "1 235 ₽"
+ * formatCurrency(1234.56, { includeSymbol: false })  // "1 235"
+ * formatCurrency(1234.56, { symbolPosition: 'before' })  // "₽ 1 235"
  */
-function formatAmount(amount) {
-    return new Intl.NumberFormat('ru-RU', {
-        minimumFractionDigits: 0,
-        maximumFractionDigits: 0
+function formatCurrency(amount, options = {}) {
+    const {
+        includeSymbol = true,
+        symbolPosition = 'after',  // Match backend format: "amount symbol"
+        minimumDecimals = 0,       // Always integers (match backend requirement)
+        maximumDecimals = 0,
+        locale = 'ru-RU',
+        currency = 'RUB'
+    } = options;
+
+    // Format the number only
+    const formatted = new Intl.NumberFormat(locale, {
+        minimumFractionDigits: minimumDecimals,
+        maximumFractionDigits: maximumDecimals
     }).format(amount);
+
+    if (!includeSymbol) return formatted;
+
+    // Currency symbols for common currencies
+    const symbols = {
+        'RUB': '₽',
+        'USD': '$',
+        'EUR': '€',
+        'GBP': '£'
+    };
+    const symbol = symbols[currency] || currency;
+
+    return symbolPosition === 'after' 
+        ? `${formatted} ${symbol}`
+        : `${symbol} ${formatted}`;
 }
 
 /**
@@ -635,7 +671,7 @@ function renderTransactionsList(transactions, containerId = 'transactions-list')
         
         const amountEl = document.createElement('div');
         amountEl.className = 'transaction-item-amount';
-        amountEl.textContent = `₽${formatAmount(transaction.amount)}`;
+        amountEl.textContent = formatCurrency(transaction.amount);
         
         headerDiv.appendChild(leftDiv);
         headerDiv.appendChild(amountEl);
@@ -693,7 +729,7 @@ async function loadBills(containerId = 'bills-list') {
 }
 
 /**
- * Render bills list into specified container (all bill types)
+ * Render bills list into specified container (all bill types), grouped by service periods
  * @param {Array} bills - Array of bill objects
  * @param {string} containerId - ID of container to render into
  */
@@ -712,85 +748,122 @@ function renderBills(bills, containerId = 'bills-list') {
         return;
     }
     
-    bills.forEach(bill => {
-        const billItem = document.createElement('div');
-        billItem.className = 'bill-item';
-        
-        // Line 1: Period dates (from - to)
-        const periodDiv = document.createElement('div');
-        periodDiv.className = 'bill-item-period-row';
-        const periodEl = document.createElement('div');
-        periodEl.className = 'bill-item-period';
-        periodEl.textContent = `${formatDate(bill.period_start_date)} - ${formatDate(bill.period_end_date)}`;
-        periodDiv.appendChild(periodEl);
-        billItem.appendChild(periodDiv);
-        
-        // Line 2: Bill type, Property, Amount
-        const typePropertyRowDiv = document.createElement('div');
-        typePropertyRowDiv.className = 'bill-item-type-property-row';
-        
-        // Bill type badge (left)
-        const badgeEl = document.createElement('span');
-        badgeEl.className = `bill-type-badge bill-type-${bill.bill_type.toLowerCase()}`;
-        badgeEl.textContent = formatBillType(bill.bill_type);
-        typePropertyRowDiv.appendChild(badgeEl);
-        
-        // Property info (center)
-        const propertyLeftDiv = document.createElement('div');
-        propertyLeftDiv.className = 'bill-item-property-center';
-        
-        if (bill.property_name || bill.property_type || bill.comment) {
-            const propertyEl = document.createElement('div');
-            propertyEl.className = 'bill-item-property';
-            
-            if (bill.property_name) {
-                propertyEl.textContent = bill.property_name;
-            } else if (bill.comment) {
-                propertyEl.textContent = bill.comment;
-            }
-            
-            propertyLeftDiv.appendChild(propertyEl);
+    // Group bills by service period (period_start_date + period_end_date)
+    const groupedBills = bills.reduce((groups, bill) => {
+        const periodKey = `${bill.period_start_date}_${bill.period_end_date}`;
+        if (!groups[periodKey]) {
+            groups[periodKey] = {
+                period_start_date: bill.period_start_date,
+                period_end_date: bill.period_end_date,
+                bills: []
+            };
         }
+        groups[periodKey].bills.push(bill);
+        return groups;
+    }, {});
+    
+    // Sort periods by start date (newest first)
+    const sortedPeriods = Object.values(groupedBills).sort((a, b) => 
+        new Date(b.period_start_date) - new Date(a.period_start_date)
+    );
+    
+    // Render each period and its bills
+    sortedPeriods.forEach(periodGroup => {
+        // Create period section header
+        const periodSection = document.createElement('div');
+        periodSection.className = 'bills-period-section';
         
-        typePropertyRowDiv.appendChild(propertyLeftDiv);
+        const periodHeader = document.createElement('div');
+        periodHeader.className = 'bills-period-header';
+        periodHeader.textContent = `${formatDate(periodGroup.period_start_date)} - ${formatDate(periodGroup.period_end_date)}`;
+        periodSection.appendChild(periodHeader);
         
-        // Amount (right)
-        const amountEl = document.createElement('div');
-        amountEl.className = 'bill-item-amount';
-        amountEl.textContent = `₽${formatAmount(bill.bill_amount)}`;
+        // Create bills container for this period
+        const billsContainer = document.createElement('div');
+        billsContainer.className = 'bills-period-bills';
         
-        typePropertyRowDiv.appendChild(amountEl);
-        billItem.appendChild(typePropertyRowDiv);
-        
-        // Readings row (only for ELECTRICITY bills with end_reading)
-        if (bill.bill_type && bill.bill_type.toUpperCase() === 'ELECTRICITY' && bill.end_reading !== null) {
-            const readingsDiv = document.createElement('div');
-            readingsDiv.className = 'bill-item-readings';
+        // Render bills for this period
+        periodGroup.bills.forEach(bill => {
+            const billItem = document.createElement('div');
+            billItem.className = 'bill-item';
             
-            const readingsText = document.createElement('span');
-            readingsText.className = 'readings-range';
+            // Line 1: Bill type, Property, Amount (no period dates since they're in the header)
+            const typePropertyRowDiv = document.createElement('div');
+            typePropertyRowDiv.className = 'bill-item-type-property-row';
             
-            // Display start → end if both exist, otherwise just end
-            if (bill.start_reading !== null) {
-                readingsText.textContent = `${formatAmount(bill.start_reading)} → ${formatAmount(bill.end_reading)}`;
-            } else {
-                readingsText.textContent = `${formatAmount(bill.end_reading)} kWh`;
+            // Bill type badge (left)
+            const badgeEl = document.createElement('span');
+            badgeEl.className = `bill-type-badge bill-type-${bill.bill_type.toLowerCase()}`;
+            badgeEl.textContent = formatBillType(bill.bill_type);
+            typePropertyRowDiv.appendChild(badgeEl);
+            
+            // Property info (center)
+            const propertyLeftDiv = document.createElement('div');
+            propertyLeftDiv.className = 'bill-item-property-center';
+            
+            if (bill.property_name || bill.property_type || bill.comment) {
+                const propertyEl = document.createElement('div');
+                propertyEl.className = 'bill-item-property';
+                
+                if (bill.property_name) {
+                    propertyEl.textContent = bill.property_name;
+                } else if (bill.comment) {
+                    propertyEl.textContent = bill.comment;
+                }
+                
+                propertyLeftDiv.appendChild(propertyEl);
             }
             
-            readingsDiv.appendChild(readingsText);
+            typePropertyRowDiv.appendChild(propertyLeftDiv);
             
-            // Add consumption badge if available
-            if (bill.consumption !== null) {
-                const consumptionBadge = document.createElement('span');
-                consumptionBadge.className = 'consumption-badge';
-                consumptionBadge.textContent = `${formatAmount(bill.consumption)} kWh`;
-                readingsDiv.appendChild(consumptionBadge);
+            // Amount (right)
+            const amountEl = document.createElement('div');
+            amountEl.className = 'bill-item-amount';
+            amountEl.textContent = formatCurrency(bill.bill_amount);
+            
+            typePropertyRowDiv.appendChild(amountEl);
+            billItem.appendChild(typePropertyRowDiv);
+            
+            // Readings row (only for ELECTRICITY bills with end_reading)
+            if (bill.bill_type && bill.bill_type.toUpperCase() === 'ELECTRICITY' && bill.end_reading !== null) {
+                const readingsDiv = document.createElement('div');
+                readingsDiv.className = 'bill-item-readings';
+                
+                const readingsText = document.createElement('span');
+                readingsText.className = 'readings-range';
+                
+                // Display start → end if both exist, otherwise just end
+                if (bill.start_reading !== null) {
+                    readingsText.textContent = `${formatCurrency(bill.start_reading, { includeSymbol: false })} → ${formatCurrency(bill.end_reading, { includeSymbol: false })}`;
+                } else {
+                    readingsText.textContent = `${formatCurrency(bill.end_reading, { includeSymbol: false })} kWh`;
+                }
+                
+                readingsDiv.appendChild(readingsText);
+                
+                // Add consumption badge if available
+                if (bill.consumption !== null) {
+                    const consumptionBadge = document.createElement('span');
+                    consumptionBadge.className = 'consumption-badge';
+                    consumptionBadge.textContent = `${formatCurrency(bill.consumption, { includeSymbol: false })} kWh`;
+                    readingsDiv.appendChild(consumptionBadge);
+                }
+                
+                billItem.appendChild(readingsDiv);
             }
             
-            billItem.appendChild(readingsDiv);
-        }
+            billsContainer.appendChild(billItem);
+        });
         
-        container.appendChild(billItem);
+        // Calculate and display period total
+        const periodTotal = periodGroup.bills.reduce((sum, bill) => sum + bill.bill_amount, 0);
+        const periodSumDiv = document.createElement('div');
+        periodSumDiv.className = 'bills-period-sum';
+        periodSumDiv.textContent = `${t('ui.total')}: ${formatCurrency(periodTotal)}`;
+        billsContainer.appendChild(periodSumDiv);
+        
+        periodSection.appendChild(billsContainer);
+        container.appendChild(periodSection);
     });
 }
 
@@ -1154,10 +1227,10 @@ async function loadAccountDetails(accountId) {
             const displayBalance = balanceData.invert_for_display ? -balanceData.balance : balanceData.balance;
             const balanceEl = document.getElementById('account-balance-value');
             if (balanceEl) {
-                const formattedBalance = formatAmount(Math.abs(displayBalance));
+                const formatted = formatCurrency(Math.abs(displayBalance));
                 const balanceClass = displayBalance >= 0 ? 'positive' : 'negative';
                 balanceEl.className = `balance-value ${balanceClass}`;
-                balanceEl.textContent = `${displayBalance >= 0 ? '+' : '-'}₽${formattedBalance}`;
+                balanceEl.textContent = `${displayBalance >= 0 ? '+' : '-'}${formatted}`;
             }
         }
         
@@ -1247,10 +1320,10 @@ function renderBalance(balance, invert = false, containerId = 'balance-container
     // Find the balance-value element and update it
     const balanceValue = container.querySelector('.balance-value') || document.getElementById(containerId.replace('-container', '-value'));
     if (balanceValue) {
-        const formattedBalance = formatAmount(Math.abs(displayBalance));
+        const formatted = formatCurrency(Math.abs(displayBalance));
         const balanceClass = displayBalance >= 0 ? 'positive' : 'negative';
         balanceValue.className = `balance-value ${balanceClass}`;
-        balanceValue.textContent = `${displayBalance >= 0 ? '+' : '-'}₽${formattedBalance}`;
+        balanceValue.textContent = `${displayBalance >= 0 ? '+' : '-'}${formatted}`;
     }
 }
 
@@ -1395,10 +1468,10 @@ function renderAccountsPage(accounts, containerId = 'accounts-list') {
         // Balance amount (with color coding and inversion for owner accounts)
         const displayBalance = item.invert_for_display ? -item.balance : item.balance;
         const amountEl = document.createElement('div');
-        const formattedAmount = formatAmount(Math.abs(displayBalance));
+        const formatted = formatCurrency(Math.abs(displayBalance));
         const balanceClass = displayBalance >= 0 ? 'positive' : 'negative';
         amountEl.className = `account-row-amount ${balanceClass}`;
-        amountEl.textContent = `${displayBalance >= 0 ? '+' : '-'}₽${formattedAmount}`;
+        amountEl.textContent = `${displayBalance >= 0 ? '+' : '-'}${formatted}`;
         
         row.appendChild(amountEl);
         container.appendChild(row);
@@ -1409,6 +1482,9 @@ async function initMiniApp() {
     try {
         // Load translations first
         await loadTranslations();
+        
+        // Apply translations to static template elements
+        applyTranslations();
         
         // Get init data from Telegram WebApp (supports both desktop and iOS)
         const initData = getInitData();
@@ -1620,10 +1696,8 @@ function renderProperties(properties) {
             const priceBadge = document.createElement('span');
             priceBadge.className = 'property-badge';
             const price = parseFloat(property.sale_price);
-            const formattedPrice = price % 1 === 0 
-                ? price.toLocaleString('ru-RU')
-                : price.toLocaleString('ru-RU', { minimumFractionDigits: 1, maximumFractionDigits: 2 });
-            priceBadge.textContent = `₽${formattedPrice}`;
+            const formattedPrice = formatCurrency(price);
+            priceBadge.textContent = formattedPrice;
             metaEl.appendChild(priceBadge);
         }
 
