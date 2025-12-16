@@ -16,14 +16,18 @@ EnvironmentFile=${INSTALL_DIR}/.env
 ExecStart=${INSTALL_DIR}/.venv/bin/python -m src.main --mode webhook
 Restart=on-failure
 RestartSec=5
-StandardOutput=append:${INSTALL_DIR}/logs/server.log
-StandardError=append:${INSTALL_DIR}/logs/server.log
+
+# Logging - systemd creates /var/log/sosenki with correct user ownership
+LogsDirectory=sosenki
+LogsDirectoryMode=0750
+StandardOutput=append:%L/sosenki/server.log
+StandardError=append:%L/sosenki/server.log
 
 # Hardening
 NoNewPrivileges=true
 ProtectSystem=strict
 ProtectHome=read-only
-ReadWritePaths=${INSTALL_DIR}/logs ${INSTALL_DIR}/backups ${INSTALL_DIR}
+ReadWritePaths=${INSTALL_DIR}/backups ${INSTALL_DIR}
 
 [Install]
 WantedBy=multi-user.target

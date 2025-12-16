@@ -1,16 +1,36 @@
 """Simple localization module for SOSenki.
 
 Loads Russian translations from translations.json once at import time.
-Provides a single t(key, **kwargs) function for translation lookup with semantic categories.
+Provides a single t(key, **kwargs) function for translation lookup with flat keys.
+
+Translation Key Naming Convention (Flat Structure with Prefixes):
+    - btn_*         Clickable buttons (btn_approve, btn_cancel)
+    - prompt_*      Input prompts for bot conversations (prompt_meter_start, prompt_budget_main)
+    - msg_*         Informational messages/notifications (msg_welcome, msg_period_created)
+    - err_*         Error messages (err_invalid_number, err_not_authorized)
+    - status_*      State labels (status_open, status_closed, status_pending)
+    - empty_*       Empty state messages (empty_bills, empty_transactions)
+    - nav_*         Navigation labels (nav_balance, nav_invest)
+    - hint_*        Helper text (hint_previous_value)
+    - title_*       Section headers (title_existing_periods)
+    - label_*       Generic labels (label_weight, label_tenant)
+    - action_*      Action button labels (action_new_period, action_close_period)
+
+Domain Suffix Convention:
+    Add domain-specific suffix only when ambiguous (Option C).
+    Examples:
+        - prompt_budget_main / prompt_budget_conservation (disambiguate main vs conservation)
+        - prompt_meter_start (domain obvious from context, no suffix needed)
+        - empty_bills_list / empty_bills (both exist for different contexts)
 
 Usage:
     from src.services.localizer import t
 
     # Simple lookup
-    message = t("labels.welcome")
+    message = t("msg_welcome")
 
     # With placeholder substitution
-    message = t("errors.group_chat_error", bot_name="SOSenkiBot")
+    message = t("err_group_chat", bot_name="SOSenkiBot")
 """
 
 import json
@@ -32,31 +52,27 @@ except (FileNotFoundError, json.JSONDecodeError) as e:
 
 
 def t(key: str, **kwargs: Any) -> str:
-    """Get translation for a key with optional placeholder substitution.
+    """Get translation for a flat key with optional placeholder substitution.
 
     Args:
-        key: Dot-notation key (e.g., "labels.welcome", "errors.group_chat_error")
+        key: Flat key with prefix convention (e.g., "msg_welcome", "err_group_chat")
         **kwargs: Placeholder values for string formatting
 
     Returns:
         Translated string with placeholders replaced, or the key itself if not found.
 
     Examples:
-        >>> t("labels.welcome")
+        >>> t("msg_welcome")
         "Добро пожаловать в SOSenki! 🏠"
 
-        >>> t("errors.group_chat_error", bot_name="SOSenkiBot")
+        >>> t("err_group_chat", bot_name="SOSenkiBot")
         "❌ Запросы можно отправлять только в личные сообщения..."
     """
-    parts = key.split(".")
-    value: Any = _TRANSLATIONS
+    value = _TRANSLATIONS.get(key)
 
-    for part in parts:
-        if isinstance(value, dict) and part in value:
-            value = value[part]
-        else:
-            logger.warning("Translation key not found: %s", key)
-            return key
+    if value is None:
+        logger.warning("Translation key not found: %s", key)
+        return key
 
     if not isinstance(value, str):
         logger.warning("Translation value is not a string for key: %s", key)

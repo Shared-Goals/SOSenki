@@ -3,12 +3,12 @@
 Translation completeness validation script for SOSenki.
 
 Validates that translations.json contains all required translation keys used in:
-1. Bot handlers - t("category.key") pattern in Python files
-2. Mini App - t("category.key") pattern in JavaScript files
-3. HTML - data-i18n="category.key" attributes
+1. Bot handlers - t("flat_key") pattern in Python files
+2. Mini App - t("flat_key") pattern in JavaScript files
+3. HTML - data-i18n="flat_key" attributes
 
 Single source of truth: src/static/mini_app/translations.json
-Flat namespace: buttons, labels, status, errors, requests, admin, electricity, ui
+Flat structure with prefixes: btn_, prompt_, msg_, err_, status_, empty_, nav_, hint_, title_, label_, action_
 
 Provides warnings for:
 - Missing keys in translations.json
@@ -36,18 +36,19 @@ def load_translations(file_path: Path) -> dict:
 
 
 def extract_keys_from_code(code: str) -> set:
-    """Extract translation keys from Python/JavaScript code using t("category.key") pattern."""
-    # Pattern: t("category.key_name") or t('category.key_name') with optional format args
+    """Extract all translation keys from Python/JavaScript code using t("key") pattern."""
+    # Pattern: t("key") or t('key') - matches ANY key (flat or dotted)
+    # Use word boundary \b before 't' to avoid matching .get() or other methods
     # Use DOTALL flag to handle multiline function calls
-    pattern = r"t\(\s*['\"]([a-z_]+\.[a-z_]+)['\"]\s*[,\)]"
+    pattern = r"\bt\(\s*['\"]([a-z_.]+)['\"]\s*[,\)]"
     matches = re.findall(pattern, code, re.DOTALL)
     return set(matches)
 
 
 def extract_keys_from_html(code: str) -> set:
-    """Extract translation keys from HTML using data-i18n attributes."""
-    # Pattern: data-i18n="category.key_name" or data-i18n-html="category.key_name"
-    pattern = r'data-i18n(?:-html)?=["\']([a-z_]+\.[a-z_]+)["\']'
+    """Extract all translation keys from HTML using data-i18n attributes."""
+    # Pattern: data-i18n="key" or data-i18n-html="key" - matches ANY key (flat or dotted)
+    pattern = r'data-i18n(?:-html)?=["\']([a-z_.]+)["\']'
     matches = re.findall(pattern, code)
     return set(matches)
 
@@ -110,18 +111,6 @@ def find_hardcoded_russian_text(code: str, file_path: str) -> list:  # noqa: C90
     return issues
 
 
-def flatten_keys(translations: dict, prefix: str = "") -> set:
-    """Flatten nested translation dict to dot-notation keys."""
-    keys = set()
-    for key, value in translations.items():
-        full_key = f"{prefix}.{key}" if prefix else key
-        if isinstance(value, dict):
-            keys.update(flatten_keys(value, full_key))
-        else:
-            keys.add(full_key)
-    return keys
-
-
 def check_translations():  # noqa: C901
     """Main validation function."""
     project_root = Path(__file__).parent.parent
@@ -129,7 +118,7 @@ def check_translations():  # noqa: C901
     # Single source of truth
     ru_json_path = project_root / "src" / "static" / "mini_app" / "translations.json"
 
-    # Python files that use t("category.key")
+    # Python files that use t("flat_key")
     python_files = list((project_root / "src" / "bot" / "handlers").glob("*.py"))
     python_files.extend(
         [
@@ -137,7 +126,7 @@ def check_translations():  # noqa: C901
         ]
     )
 
-    # JavaScript files that use t("category.key")
+    # JavaScript files that use t("flat_key")
     js_files = [
         project_root / "src" / "static" / "mini_app" / "app.js",
     ]
@@ -149,13 +138,13 @@ def check_translations():  # noqa: C901
 
     # Load translations from single backend file
     translations = load_translations(ru_json_path)
-    available_keys = flatten_keys(translations)
+    available_keys = set(translations.keys())
 
     print("\n🔍 Translation Validation Report\n")
     print("=" * 60)
     print(f"📍 Single source of truth: {ru_json_path.relative_to(project_root)}")
     print(
-        "📚 Semantic categories: buttons, labels, status, errors, requests, admin, electricity, ui"
+        "📚 Flat structure with prefixes: btn_, prompt_, msg_, err_, status_, empty_, nav_, hint_, title_, label_, action_"
     )
     print("=" * 60)
 

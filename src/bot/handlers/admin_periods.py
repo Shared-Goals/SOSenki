@@ -107,7 +107,7 @@ async def handle_periods_command(update: Update, context: ContextTypes.DEFAULT_T
         if not admin_user:
             logger.warning("Non-admin attempted periods command: telegram_id=%d", telegram_id)
             try:
-                await update.message.reply_text(t("errors.not_authorized"))
+                await update.message.reply_text(t("err_not_authorized"))
             except Exception:
                 pass
             return States.END
@@ -118,14 +118,14 @@ async def handle_periods_command(update: Update, context: ContextTypes.DEFAULT_T
 
         # Show action menu
         buttons = [
-            [InlineKeyboardButton(t("labels.new_period"), callback_data="period_action:create")],
-            [InlineKeyboardButton(t("labels.view_periods"), callback_data="period_action:view")],
-            [InlineKeyboardButton(t("labels.close_period"), callback_data="period_action:close")],
+            [InlineKeyboardButton(t("action_new_period"), callback_data="period_action:create")],
+            [InlineKeyboardButton(t("action_view_periods"), callback_data="period_action:view")],
+            [InlineKeyboardButton(t("action_close_period"), callback_data="period_action:close")],
         ]
         keyboard = InlineKeyboardMarkup(buttons)
 
         await update.message.reply_text(
-            t("labels.select_action"),
+            t("prompt_select_action"),
             reply_markup=keyboard,
         )
 
@@ -140,7 +140,7 @@ async def handle_periods_command(update: Update, context: ContextTypes.DEFAULT_T
     except Exception as e:
         logger.error("Error starting periods workflow: %s", e, exc_info=True)
         try:
-            await update.message.reply_text(t("errors.error_processing"))
+            await update.message.reply_text(t("err_processing"))
         except Exception:
             pass
         return States.END
@@ -170,9 +170,7 @@ async def handle_period_action_selection(  # noqa: C901
                     suggested_start_str = last_period.end_date.strftime("%d.%m.%Y")
                     keyboard = _build_previous_value_keyboard(suggested_start_str)
 
-                await cq.message.reply_text(
-                    t("labels.period_start_date_prompt"), reply_markup=keyboard
-                )
+                await cq.message.reply_text(t("prompt_period_start_date"), reply_markup=keyboard)
                 return States.INPUT_START_DATE
 
         elif cq.data == "period_action:view":
@@ -182,20 +180,17 @@ async def handle_period_action_selection(  # noqa: C901
                 periods = await period_service.list_periods(limit=10)
 
                 if not periods:
-                    await cq.edit_message_text(t("labels.no_periods_found"))
+                    await cq.edit_message_text(t("empty_periods"))
                     return States.END
 
-                periods_text = t("labels.existing_periods_title") + "\n\n"
+                periods_text = t("title_existing_periods") + "\n\n"
                 for period in periods:
                     status_emoji = "🟢" if period.status == "open" else "🔴"
                     status_text = (
-                        t("status.period_open")
-                        if period.status == "open"
-                        else t("status.period_closed")
+                        t("status_open") if period.status == "open" else t("status_closed")
                     )
                     periods_text += (
-                        f"{status_emoji} {period.name}\n"
-                        f"   {t('labels.status_label')} {status_text}\n\n"
+                        f"{status_emoji} {period.name}\n   {t('title_status')} {status_text}\n\n"
                     )
 
                 await cq.edit_message_text(periods_text, parse_mode="Markdown")
@@ -208,7 +203,7 @@ async def handle_period_action_selection(  # noqa: C901
                 open_periods = await period_service.get_open_periods()
 
                 if not open_periods:
-                    await cq.edit_message_text(t("labels.no_open_periods_to_close"))
+                    await cq.edit_message_text(t("empty_periods_to_close"))
                     return States.END
 
                 # Build buttons for each open period
@@ -224,20 +219,20 @@ async def handle_period_action_selection(  # noqa: C901
                 keyboard = InlineKeyboardMarkup(buttons)
 
                 await cq.edit_message_text(
-                    t("labels.select_period_to_close"),
+                    t("prompt_select_period_to_close"),
                     reply_markup=keyboard,
                 )
                 return States.END
 
         else:
             logger.warning("Unknown period action: %s", cq.data)
-            await cq.edit_message_text(t("errors.error_processing"))
+            await cq.edit_message_text(t("err_processing"))
             return States.END
 
     except Exception as e:
         logger.error("Error in period action selection: %s", e, exc_info=True)
         try:
-            await update.callback_query.edit_message_text(t("errors.error_processing"))
+            await update.callback_query.edit_message_text(t("err_processing"))
         except Exception:
             logger.debug("Could not edit message after error", exc_info=True)
         return States.END
@@ -256,27 +251,25 @@ async def handle_period_start_date_input(update: Update, context: ContextTypes.D
         value, valid = _validate_date(text)
 
         if not valid:
-            await update.message.reply_text(t("errors.invalid_date_format"))
+            await update.message.reply_text(t("err_invalid_date_format"))
             return States.INPUT_START_DATE
 
         # Validate that date is first day of month
         if value.day != 1:
             await update.message.reply_text(
-                t("errors.invalid_date_format")
-                + "\n"
-                + t("labels.start_date_must_be_first_of_month")
+                t("err_invalid_date_format") + "\n" + t("hint_start_date_first_of_month")
             )
             return States.INPUT_START_DATE
 
         context.user_data["period_start_date"] = value
 
-        await update.message.reply_text(t("labels.period_months_prompt"))
+        await update.message.reply_text(t("prompt_period_months"))
         return States.INPUT_PERIOD_MONTHS
 
     except Exception as e:
         logger.error("Error in period start date input: %s", e, exc_info=True)
         try:
-            await update.message.reply_text(t("errors.error_processing"))
+            await update.message.reply_text(t("err_processing"))
         except Exception:
             pass
         return States.END
@@ -299,17 +292,17 @@ async def handle_period_months_input(update: Update, context: ContextTypes.DEFAU
         try:
             period_months = int(text)
         except ValueError:
-            await update.message.reply_text(t("errors.invalid_period_months_format"))
+            await update.message.reply_text(t("err_invalid_period_months"))
             return States.INPUT_PERIOD_MONTHS
 
         if not (1 <= period_months <= 12):
-            await update.message.reply_text(t("errors.period_months_out_of_range"))
+            await update.message.reply_text(t("err_period_months_range"))
             return States.INPUT_PERIOD_MONTHS
 
         start_date = context.user_data.get("period_start_date")
         if not start_date:
             logger.warning("Missing period_start_date in context")
-            await update.message.reply_text(t("errors.error_processing"))
+            await update.message.reply_text(t("err_processing"))
             return States.END
 
         context.user_data["period_months"] = period_months
@@ -340,9 +333,9 @@ async def handle_period_months_input(update: Update, context: ContextTypes.DEFAU
             # Show confirmation with period details
             status_emoji = "🟢"
             message = (
-                f"✅ {t('labels.period_created_success')}\n\n"
+                f"✅ {t('msg_period_created')}\n\n"
                 f"{status_emoji} {new_period.name}\n"
-                f"   {t('labels.status_label')} {t('status.period_open')}"
+                f"   {t('title_status')} {t('status_open')}"
             )
             await update.message.reply_text(message)
 
@@ -351,7 +344,7 @@ async def handle_period_months_input(update: Update, context: ContextTypes.DEFAU
     except Exception as e:
         logger.error("Error in period months input: %s", e, exc_info=True)
         try:
-            await update.message.reply_text(t("errors.error_processing"))
+            await update.message.reply_text(t("err_processing"))
         except Exception:
             pass
         return States.END
@@ -376,7 +369,7 @@ async def handle_close_period_confirmation(
             period_id = int(cq.data.split(":")[1])
         except (IndexError, ValueError):
             logger.warning("Invalid close period callback data: %s", cq.data)
-            await cq.edit_message_text(t("errors.error_processing"))
+            await cq.edit_message_text(t("err_processing"))
             return States.END
 
         async with AsyncSessionLocal() as session:
@@ -384,7 +377,7 @@ async def handle_close_period_confirmation(
             period = await period_service.get_by_id(period_id)
 
             if not period:
-                await cq.edit_message_text(t("errors.error_processing"))
+                await cq.edit_message_text(t("err_processing"))
                 return States.END
 
             admin_user = context.user_data.get("authorized_admin")
@@ -397,10 +390,10 @@ async def handle_close_period_confirmation(
             )
 
             if not success:
-                await cq.edit_message_text(t("errors.error_processing"))
+                await cq.edit_message_text(t("err_processing"))
                 return States.END
 
-            await cq.edit_message_text(t("bills.period_closed", period_name=period.name))
+            await cq.edit_message_text(t("msg_period_closed", period_name=period.name))
 
             # Clear any context
             _clear_periods_context(context)
@@ -410,7 +403,7 @@ async def handle_close_period_confirmation(
     except Exception as e:
         logger.error("Error closing period: %s", e, exc_info=True)
         try:
-            await update.callback_query.edit_message_text(t("errors.error_processing"))
+            await update.callback_query.edit_message_text(t("err_processing"))
         except Exception:
             pass
         return States.END

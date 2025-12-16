@@ -52,7 +52,7 @@ async def _execute_admin_action(
                 selected_user_id=selected_user_id,
             )
             if not request:
-                return None, t("errors.request_not_found_or_invalid")
+                return None, t("err_request_not_found_or_invalid")
 
             # Send welcome notification to the approved user
             notification_service = NotificationService(context.application)
@@ -64,7 +64,7 @@ async def _execute_admin_action(
                 request_id=request_id, admin_user=admin_user
             )
             if not request:
-                return None, t("errors.request_not_found")
+                return None, t("err_request_not_found")
 
             # Send rejection notification to the user
             notification_service = NotificationService(context.application)
@@ -79,7 +79,7 @@ async def _execute_admin_action(
             e,
             exc_info=True,
         )
-        return None, t("errors.error_processing")
+        return None, t("err_processing")
     finally:
         db.close()
 
@@ -133,7 +133,7 @@ async def handle_admin_response(  # noqa: C901
                 # Show helpful error since user clearly intended to interact with request
                 logger.debug("Non-action reply to request from %s: %s", admin_id, text)
                 try:
-                    await update.message.reply_text(t("requests.reply_with_id_or_action"))
+                    await update.message.reply_text(t("msg_reply_with_id_or_action"))
                 except Exception:
                     logger.debug(
                         "Could not send instruction reply to admin %s", admin_id, exc_info=True
@@ -142,7 +142,7 @@ async def handle_admin_response(  # noqa: C901
         except ValueError:
             logger.warning("Could not parse admin response from %s: %s", admin_id, text)
             try:
-                await update.message.reply_text(t("requests.invalid_response"))
+                await update.message.reply_text(t("msg_invalid_response"))
             except Exception:
                 logger.debug(
                     "Could not send parse error reply to admin %s", admin_id, exc_info=True
@@ -161,7 +161,7 @@ async def handle_admin_response(  # noqa: C901
         except (ValueError, IndexError) as e:
             logger.warning("Could not parse request ID from message: %s (error: %s)", reply_text, e)
             try:
-                await update.message.reply_text(t("errors.parse_error"))
+                await update.message.reply_text(t("err_parse_error"))
             except Exception:
                 logger.debug(
                     "Could not send parse-failure reply to admin %s", admin_id, exc_info=True
@@ -181,7 +181,7 @@ async def handle_admin_response(  # noqa: C901
         if not admin_user:
             logger.warning("Non-admin attempted action=%s on request %d", action, request_id)
             try:
-                await update.message.reply_text(t("errors.not_authorized"))
+                await update.message.reply_text(t("err_not_authorized"))
             except Exception:
                 pass
             return
@@ -221,12 +221,12 @@ async def handle_admin_response(  # noqa: C901
             if action == "approve":
                 if selected_user_id:
                     await update.message.reply_text(
-                        t("admin.user_approved_with_id", user_id=selected_user_id)
+                        t("msg_user_approved", user_id=selected_user_id)
                     )
                 else:
-                    await update.message.reply_text(t("requests.approval_confirmed"))
+                    await update.message.reply_text(t("msg_request_approved"))
             else:
-                await update.message.reply_text(t("requests.rejection_confirmed"))
+                await update.message.reply_text(t("msg_request_rejected"))
         except Exception:
             logger.debug("Could not confirm %s to admin %s", action, admin_id, exc_info=True)
 
@@ -250,7 +250,7 @@ async def handle_admin_callback(  # noqa: C901
         parts = data.split(":")
         if len(parts) != 2:
             try:
-                await cq.answer(t("errors.invalid_action"))
+                await cq.answer(t("err_invalid_action"))
             except Exception:
                 logger.debug("Could not answer invalid callback", exc_info=True)
             return
@@ -260,7 +260,7 @@ async def handle_admin_callback(  # noqa: C901
             request_id = int(req_str)
         except Exception:
             try:
-                await cq.answer(t("errors.invalid_request_id"))
+                await cq.answer(t("err_invalid_request_id"))
             except Exception:
                 logger.debug("Could not answer invalid id", exc_info=True)
             return
@@ -275,7 +275,7 @@ async def handle_admin_callback(  # noqa: C901
                 "Non-admin attempted callback action=%s on request %d", action, request_id
             )
             try:
-                await cq.answer(t("errors.not_authorized"))
+                await cq.answer(t("err_not_authorized"))
             except Exception:
                 pass
             return
@@ -283,7 +283,7 @@ async def handle_admin_callback(  # noqa: C901
         # Validate action type
         if action not in ("approve", "reject"):
             try:
-                await cq.answer(t("errors.unknown_action"))
+                await cq.answer(t("err_unknown_action"))
             except Exception:
                 logger.debug("Could not answer unknown action", exc_info=True)
             return
@@ -306,19 +306,19 @@ async def handle_admin_callback(  # noqa: C901
         # Send confirmation via callback answer and edit message
         try:
             if action == "approve":
-                await cq.answer(t("admin.callback_approved"))
+                await cq.answer(t("msg_callback_approved"))
                 await cq.edit_message_text(
                     t(
-                        "admin.callback_approved_by",
+                        "msg_callback_approved_by",
                         request_id=request_id,
                         admin_name=admin_name,
                     )
                 )
             else:
-                await cq.answer(t("admin.callback_rejected"))
+                await cq.answer(t("msg_callback_rejected"))
                 await cq.edit_message_text(
                     t(
-                        "admin.callback_rejected_by",
+                        "msg_callback_rejected_by",
                         request_id=request_id,
                         admin_name=admin_name,
                     )

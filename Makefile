@@ -1,7 +1,6 @@
 # ============================================================================
 # Roadmap (commit-based milestones)
 # ============================================================================
-# TODO Make translations flat
 # TODO agent: Add role-based tool filtering
 #            - User tools: get_balance, list_bills, get_period_info (read-only)
 #            - Admin tools: + create_service_period (write)
@@ -128,6 +127,7 @@ preflight:
 		echo "✅ Alembic migrations verified"; \
 		echo ""; \
 		echo "Step 9: Running test suite (prod only)..."; \
+		rm test_sosenki.db; \
 		uv run pytest tests/ -q --tb=short > /tmp/preflight-tests.log 2>&1 || \
 			(echo "❌ Test suite failed. Details:"; tail -50 /tmp/preflight-tests.log; exit 1); \
 		echo "✅ All tests passed"; \
@@ -145,7 +145,14 @@ install:
 	@echo ""
 	@echo "====== SOSenki Production Install ======"
 	@echo ""
-	@echo "Step 1/2: Installing systemd service (requires sudo)..."
+	@echo "Step 1/3: Creating log directory with correct ownership..."
+	@OWNER=$$(stat -c '%U' . 2>/dev/null || stat -f '%Su' .); \
+	sudo mkdir -p /var/log/sosenki; \
+	sudo chown $$OWNER:$$OWNER /var/log/sosenki; \
+	sudo chmod 755 /var/log/sosenki
+	@echo "✅ Log directory created: /var/log/sosenki"
+	@echo ""
+	@echo "Step 2/3: Installing systemd service (requires sudo)..."
 	@INSTALL_DIR=$$(pwd); \
 	OWNER=$$(stat -c '%U' . 2>/dev/null || stat -f '%Su' .); \
 	sed -e "s|\$${INSTALL_DIR}|$$INSTALL_DIR|g" \
@@ -156,7 +163,7 @@ install:
 	sudo systemctl enable sosenki
 	@echo "✅ Systemd service installed"
 	@echo ""
-	@echo "Step 2/2: Configuring domain and URLs (requires sudo)..."
+	@echo "Step 3/3: Configuring domain and URLs (requires sudo)..."
 	@DOMAIN=$$(grep -E '^DOMAIN=' .env 2>/dev/null | cut -d'=' -f2 | tr -d '"' | tr -d "'"); \
 	if [ -z "$$DOMAIN" ]; then \
 		echo "❌ DOMAIN not set in .env. Required for Caddy and webhook URLs."; \

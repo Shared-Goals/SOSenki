@@ -194,7 +194,7 @@ async def handle_bills_command(  # noqa: C901
         if not admin_user:
             logger.warning("Non-admin attempted electricity command: telegram_id=%d", telegram_id)
             try:
-                await update.message.reply_text(t("errors.not_authorized"))
+                await update.message.reply_text(t("err_not_authorized"))
             except Exception:
                 pass
             return States.END
@@ -218,7 +218,7 @@ async def handle_bills_command(  # noqa: C901
             keyboard = InlineKeyboardMarkup(buttons)
 
             await update.message.reply_text(
-                t("labels.select_period"),
+                t("prompt_select_period"),
                 reply_markup=keyboard,
             )
 
@@ -237,7 +237,7 @@ async def handle_bills_command(  # noqa: C901
     except Exception as e:
         logger.error("Error starting bills workflow: %s", e, exc_info=True)
         try:
-            await update.message.reply_text(t("errors.error_processing"))
+            await update.message.reply_text(t("err_processing"))
         except Exception:
             pass
         return States.END
@@ -269,14 +269,14 @@ async def handle_period_selection(  # noqa: C901
                 period_id = int(cq.data.split(":")[1])
             except (IndexError, ValueError):
                 logger.warning("Invalid period callback data: %s", cq.data)
-                await cq.edit_message_text(t("errors.error_processing"))
+                await cq.edit_message_text(t("err_processing"))
                 return States.END
 
             # Fetch period
             period = await period_service.get_by_id(period_id)
             if not period:
                 logger.warning("Period %d not found", period_id)
-                await cq.edit_message_text(t("errors.error_processing"))
+                await cq.edit_message_text(t("err_processing"))
                 return States.END
 
             # Store selected period (in both contexts for compatibility)
@@ -287,20 +287,21 @@ async def handle_period_selection(  # noqa: C901
             buttons = [
                 [
                     InlineKeyboardButton(
-                        t("bills.action_readings"),
+                        t("action_create_by_readings"),
                         callback_data=f"bill_action:readings:{period_id}",
                     )
                 ],
                 [
                     InlineKeyboardButton(
-                        t("bills.action_budget"), callback_data=f"bill_action:budget:{period_id}"
+                        t("action_create_by_budget"),
+                        callback_data=f"bill_action:budget:{period_id}",
                     )
                 ],
             ]
             keyboard = InlineKeyboardMarkup(buttons)
 
             await cq.edit_message_text(
-                t("bills.select_action", period_name=period.name),
+                t("msg_bills_action", period_name=period.name),
                 reply_markup=keyboard,
             )
 
@@ -309,7 +310,7 @@ async def handle_period_selection(  # noqa: C901
     except Exception as e:
         logger.error("Error in period selection: %s", e, exc_info=True)
         try:
-            await update.callback_query.edit_message_text(t("errors.error_processing"))
+            await update.callback_query.edit_message_text(t("err_processing"))
         except Exception:
             logger.debug("Could not edit message after error", exc_info=True)
         return States.END
@@ -330,7 +331,7 @@ async def handle_action_selection(  # noqa: C901
         # Parse action
         parts = cq.data.split(":")
         if len(parts) < 3:
-            await cq.edit_message_text(t("errors.error_processing"))
+            await cq.edit_message_text(t("err_processing"))
             return States.END
 
         action = parts[1]  # "readings", "budget", or "close"
@@ -343,13 +344,13 @@ async def handle_action_selection(  # noqa: C901
             # Route to budget workflow
             return await _start_budget_workflow(update, context, period_id)
         else:
-            await cq.edit_message_text(t("errors.error_processing"))
+            await cq.edit_message_text(t("err_processing"))
             return States.END
 
     except Exception as e:
         logger.error("Error in action selection: %s", e, exc_info=True)
         try:
-            await update.callback_query.edit_message_text(t("errors.error_processing"))
+            await update.callback_query.edit_message_text(t("err_processing"))
         except Exception:
             pass
         return States.END
@@ -365,7 +366,7 @@ async def _start_electricity_workflow(
             period = await period_service.get_by_id(period_id)
 
             if not period:
-                await update.callback_query.edit_message_text(t("errors.error_processing"))
+                await update.callback_query.edit_message_text(t("err_processing"))
                 return States.END
 
             # Store period info
@@ -382,11 +383,13 @@ async def _start_electricity_workflow(
 
             # Ask for electricity_start
             default_start = defaults.electricity_end if defaults.electricity_end else "?"
-            prompt = f"{t('labels.meter_start_label')}\n\n({t('labels.previous_value', value=default_start)})"
+            prompt = (
+                f"{t('prompt_meter_start')}\n\n({t('hint_previous_value', value=default_start)})"
+            )
 
             keyboard = _build_previous_value_keyboard(defaults.electricity_end)
 
-            await update.callback_query.edit_message_text(t("bills.starting_readings_workflow"))
+            await update.callback_query.edit_message_text(t("msg_starting_readings"))
             await update.callback_query.message.reply_text(prompt, reply_markup=keyboard)
 
             return States.INPUT_METER_START
@@ -406,7 +409,7 @@ async def _start_budget_workflow(
             period = await period_service.get_by_id(period_id)
 
             if not period:
-                await update.callback_query.edit_message_text(t("errors.error_processing"))
+                await update.callback_query.edit_message_text(t("err_processing"))
                 return States.END
 
             # Store period info
@@ -441,12 +444,12 @@ async def _start_budget_workflow(
             default_text = ""
             if prev_year_budget:
                 formatted_budget = format_currency(Decimal(prev_year_budget))
-                default_text = t("bills.previous_value_hint", value=formatted_budget)
-            prompt = f"{t('labels.year_budget_label')}{default_text}"
+                default_text = t("hint_previous_value", value=formatted_budget)
+            prompt = f"{t('prompt_budget_main')}{default_text}"
 
             keyboard = _build_previous_value_keyboard(prev_year_budget)
 
-            await update.callback_query.edit_message_text(t("bills.starting_budget_workflow"))
+            await update.callback_query.edit_message_text(t("msg_starting_budget"))
             await update.callback_query.message.reply_text(prompt, reply_markup=keyboard)
 
             return States.INPUT_MAIN_BUDGET
@@ -466,17 +469,17 @@ async def handle_electricity_meter_start(update: Update, context: ContextTypes.D
         value, valid = _validate_positive_decimal(text, allow_zero=True)
 
         if not valid:
-            await update.message.reply_text(t("errors.invalid_number"))
+            await update.message.reply_text(t("err_invalid_number"))
             return States.INPUT_METER_START
 
         context.user_data["electricity_start"] = value
-        await update.message.reply_text(t("labels.meter_end_label"))
+        await update.message.reply_text(t("prompt_meter_end"))
         return States.INPUT_METER_END
 
     except Exception as e:
         logger.error("Error in meter start input: %s", e, exc_info=True)
         try:
-            await update.message.reply_text(t("errors.error_processing"))
+            await update.message.reply_text(t("err_processing"))
         except Exception:
             pass
         return States.END
@@ -492,12 +495,12 @@ async def handle_electricity_meter_end(update: Update, context: ContextTypes.DEF
         value, valid = _validate_positive_decimal(text, allow_zero=True)
 
         if not valid:
-            await update.message.reply_text(t("errors.invalid_number"))
+            await update.message.reply_text(t("err_invalid_number"))
             return States.INPUT_METER_END
 
         electricity_start = context.user_data.get("electricity_start")
         if value <= electricity_start:
-            await update.message.reply_text(t("errors.meter_end_less_than_start"))
+            await update.message.reply_text(t("err_meter_end_less_than_start"))
             return States.INPUT_METER_END
 
         context.user_data["electricity_end"] = value
@@ -505,13 +508,13 @@ async def handle_electricity_meter_end(update: Update, context: ContextTypes.DEF
         keyboard = _build_previous_value_keyboard(
             context.user_data.get("electricity_previous_multiplier")
         )
-        await update.message.reply_text(t("labels.multiplier_label"), reply_markup=keyboard)
+        await update.message.reply_text(t("prompt_multiplier"), reply_markup=keyboard)
         return States.INPUT_MULTIPLIER
 
     except Exception as e:
         logger.error("Error in meter end input: %s", e, exc_info=True)
         try:
-            await update.message.reply_text(t("errors.error_processing"))
+            await update.message.reply_text(t("err_processing"))
         except Exception:
             pass
         return States.END
@@ -527,7 +530,7 @@ async def handle_electricity_multiplier(update: Update, context: ContextTypes.DE
         value, valid = _validate_positive_decimal(text)
 
         if not valid:
-            await update.message.reply_text(t("errors.invalid_number"))
+            await update.message.reply_text(t("err_invalid_number"))
             return States.INPUT_MULTIPLIER
 
         context.user_data["electricity_multiplier"] = value
@@ -535,13 +538,13 @@ async def handle_electricity_multiplier(update: Update, context: ContextTypes.DE
         keyboard = _build_previous_value_keyboard(
             context.user_data.get("electricity_previous_rate")
         )
-        await update.message.reply_text(t("labels.rate_label"), reply_markup=keyboard)
+        await update.message.reply_text(t("prompt_rate"), reply_markup=keyboard)
         return States.INPUT_RATE
 
     except Exception as e:
         logger.error("Error in multiplier input: %s", e, exc_info=True)
         try:
-            await update.message.reply_text(t("errors.error_processing"))
+            await update.message.reply_text(t("err_processing"))
         except Exception:
             pass
         return States.END
@@ -557,7 +560,7 @@ async def handle_electricity_rate(update: Update, context: ContextTypes.DEFAULT_
         value, valid = _validate_positive_decimal(text)
 
         if not valid:
-            await update.message.reply_text(t("errors.invalid_number"))
+            await update.message.reply_text(t("err_invalid_number"))
             return States.INPUT_RATE
 
         context.user_data["electricity_rate"] = value
@@ -565,13 +568,13 @@ async def handle_electricity_rate(update: Update, context: ContextTypes.DEFAULT_
         keyboard = _build_previous_value_keyboard(
             context.user_data.get("electricity_previous_losses")
         )
-        await update.message.reply_text(t("labels.losses_label"), reply_markup=keyboard)
+        await update.message.reply_text(t("prompt_losses"), reply_markup=keyboard)
         return States.INPUT_LOSSES
 
     except Exception as e:
         logger.error("Error in rate input: %s", e, exc_info=True)
         try:
-            await update.message.reply_text(t("errors.error_processing"))
+            await update.message.reply_text(t("err_processing"))
         except Exception:
             pass
         return States.END
@@ -589,7 +592,7 @@ async def handle_electricity_losses(  # noqa: C901
         value, valid = _validate_fraction(text)
 
         if not valid:
-            await update.message.reply_text(t("errors.invalid_losses"))
+            await update.message.reply_text(t("err_invalid_losses"))
             return States.INPUT_LOSSES
 
         context.user_data["electricity_losses"] = value
@@ -626,7 +629,7 @@ async def handle_electricity_losses(  # noqa: C901
             # Fetch the service period
             period = await period_service.get_by_id(period_id)
             if not period:
-                await update.message.reply_text(t("errors.error_processing"))
+                await update.message.reply_text(t("err_processing"))
                 return States.END
 
             # Distribute costs
@@ -641,7 +644,7 @@ async def handle_electricity_losses(  # noqa: C901
     except Exception as e:
         logger.error("Error in losses input: %s", e, exc_info=True)
         try:
-            await update.message.reply_text(t("errors.error_processing"))
+            await update.message.reply_text(t("err_processing"))
         except Exception:
             pass
         return States.END
@@ -681,12 +684,12 @@ async def _show_electricity_bills_table(update: Update, context: ContextTypes.DE
         )
         bills_text += f"\n*{total_percentage:.2f}% → {total_amount_formatted}*"
 
-        message = t("electricity.confirm_bills_message", bills_table=bills_text)
+        message = t("msg_confirm_electricity_bills", bills_table=bills_text)
 
         buttons = [
             [
-                InlineKeyboardButton(t("buttons.create_bills"), callback_data="elec_bills:create"),
-                InlineKeyboardButton(t("buttons.cancel"), callback_data="elec_bills:cancel"),
+                InlineKeyboardButton(t("btn_create_bills"), callback_data="elec_bills:create"),
+                InlineKeyboardButton(t("btn_cancel"), callback_data="elec_bills:cancel"),
             ]
         ]
         keyboard = InlineKeyboardMarkup(buttons)
@@ -717,7 +720,7 @@ async def handle_electricity_create_bills(  # noqa: C901
         await cq.answer()
 
         if cq.data == "elec_bills:cancel":
-            await cq.edit_message_text(t("electricity.operation_cancelled"))
+            await cq.edit_message_text(t("msg_operation_cancelled"))
             return States.END
 
         if cq.data != "elec_bills:create":
@@ -733,7 +736,7 @@ async def handle_electricity_create_bills(  # noqa: C901
                 period_id = context.user_data.get("electricity_period_id")
 
                 if not owner_shares or not period_id:
-                    await cq.edit_message_text(t("errors.error_processing"))
+                    await cq.edit_message_text(t("err_processing"))
                     return States.END
 
                 # Update service period with electricity values
@@ -756,9 +759,9 @@ async def handle_electricity_create_bills(  # noqa: C901
                 )
 
                 # Confirm success with period name (send as reply to preserve message history)
-                period_name = context.user_data.get("electricity_period_name", t("labels.period"))
+                period_name = context.user_data.get("electricity_period_name", t("label_period"))
                 message = t(
-                    "electricity.bills_created",
+                    "msg_bills_created_electricity",
                     count=bills_created,
                     period_name=period_name,
                 )
@@ -774,7 +777,7 @@ async def handle_electricity_create_bills(  # noqa: C901
                 await session.rollback()
                 logger.error("Error creating bills: %s", e, exc_info=True)
                 try:
-                    await cq.edit_message_text(t("errors.error_processing"))
+                    await cq.edit_message_text(t("err_processing"))
                 except Exception:
                     pass
                 return States.END
@@ -782,7 +785,7 @@ async def handle_electricity_create_bills(  # noqa: C901
     except Exception as e:
         logger.error("Error in create bills handler: %s", e, exc_info=True)
         try:
-            await update.callback_query.edit_message_text(t("errors.error_processing"))
+            await update.callback_query.edit_message_text(t("err_processing"))
         except Exception:
             pass
         return States.END
@@ -798,7 +801,7 @@ async def handle_budget_main_input(update: Update, context: ContextTypes.DEFAULT
         value, valid = _validate_positive_decimal(text, allow_zero=False)
 
         if not valid:
-            await update.message.reply_text(t("errors.invalid_number"))
+            await update.message.reply_text(t("err_invalid_number"))
             return States.INPUT_MAIN_BUDGET
 
         context.user_data["budget_year_budget"] = value
@@ -808,8 +811,8 @@ async def handle_budget_main_input(update: Update, context: ContextTypes.DEFAULT
         default_text = ""
         if prev_conservation:
             formatted_budget = format_currency(Decimal(prev_conservation))
-            default_text = t("bills.previous_value_hint", value=formatted_budget)
-        prompt = f"{t('labels.conservation_year_budget_label')}{default_text}"
+            default_text = t("hint_previous_value", value=formatted_budget)
+        prompt = f"{t('prompt_budget_conservation')}{default_text}"
 
         keyboard = _build_previous_value_keyboard(prev_conservation)
         await update.message.reply_text(prompt, reply_markup=keyboard)
@@ -819,7 +822,7 @@ async def handle_budget_main_input(update: Update, context: ContextTypes.DEFAULT
     except Exception as e:
         logger.error("Error in main budget input: %s", e, exc_info=True)
         try:
-            await update.message.reply_text(t("errors.error_processing"))
+            await update.message.reply_text(t("err_processing"))
         except Exception:
             pass
         return States.END
@@ -837,7 +840,7 @@ async def handle_budget_conservation_input(  # noqa: C901
         value, valid = _validate_positive_decimal(text, allow_zero=False)
 
         if not valid:
-            await update.message.reply_text(t("errors.invalid_number"))
+            await update.message.reply_text(t("err_invalid_number"))
             return States.INPUT_CONSERVATION_BUDGET
 
         context.user_data["budget_conservation_year_budget"] = value
@@ -851,7 +854,7 @@ async def handle_budget_conservation_input(  # noqa: C901
             period = await period_service.get_by_id(period_id)
 
             if not period:
-                await update.message.reply_text(t("errors.error_processing"))
+                await update.message.reply_text(t("err_processing"))
                 return States.END
 
             year_budget = context.user_data["budget_year_budget"]
@@ -911,7 +914,7 @@ async def handle_budget_conservation_input(  # noqa: C901
     except Exception as e:
         logger.error("Error in conservation budget input: %s", e, exc_info=True)
         try:
-            await update.message.reply_text(t("errors.error_processing"))
+            await update.message.reply_text(t("err_processing"))
         except Exception:
             pass
         return States.END
@@ -923,7 +926,9 @@ async def _show_budget_bills_table(update: Update, context: ContextTypes.DEFAULT
         main_shares = context.user_data.get("budget_main_calculations", [])
         conservation_shares = context.user_data.get("budget_conservation_calculations", [])
         year_budget = context.user_data.get("budget_year_budget", Decimal("0"))
-        conservation_year_budget = context.user_data.get("budget_conservation_year_budget", Decimal("0"))
+        conservation_year_budget = context.user_data.get(
+            "budget_conservation_year_budget", Decimal("0")
+        )
         period_name = context.user_data.get("budget_period_name", "")
 
         # Get period months from service period
@@ -938,21 +943,27 @@ async def _show_budget_bills_table(update: Update, context: ContextTypes.DEFAULT
         expected_conservation_total = (conservation_year_budget / 12) * period_months
 
         # Add budget info header (plain text to avoid Markdown parsing issues)
-        budget_info = f"📊 {t('labels.period')}: {period_name} ({period_months} {t('bills.months_short')})\n"
-        budget_info += f"💰 {t('labels.year_budget_label')} ({t('ui.bill_main')}): {format_currency(year_budget)}\n"
-        budget_info += f"💰 {t('labels.conservation_year_budget_label')}: {format_currency(conservation_year_budget)}\n"
-        budget_info += f"📅 {t('bills.expected_period_total')} ({period_months} {t('bills.months_short')}):\n"
-        budget_info += f"  • {t('ui.bill_main')}: {format_currency(expected_main_total)}\n"
-        budget_info += f"  • {t('ui.bill_conservation')}: {format_currency(expected_conservation_total)}\n\n"
+        budget_info = (
+            f"📊 {t('label_period')}: {period_name} ({period_months} {t('label_months_short')})\n"
+        )
+        budget_info += f"💰 {t('prompt_budget_main')} {format_currency(year_budget)}\n"
+        budget_info += (
+            f"💰 {t('prompt_budget_conservation')} {format_currency(conservation_year_budget)}\n"
+        )
+        budget_info += (
+            f"📅 {t('title_expected_period_total')} ({period_months} {t('label_months_short')}):\n"
+        )
+        budget_info += f"  • {t('label_bill_main')}: {format_currency(expected_main_total)}\n"
+        budget_info += f"  • {t('label_bill_conservation')}: {format_currency(expected_conservation_total)}\n\n"
 
         # Build MAIN bills table with usernames and percentages (consistent with electricity format)
-        main_text = t("bills.main_bills_header") + "\n"
+        main_text = f"{t('title_bills_header_main')}:\n"
         main_total = Decimal("0")
-        
+
         # First pass: calculate total for MAIN
         for share in main_shares:
             main_total += share.calculated_bill_amount
-        
+
         # Second pass: build formatted table with percentages for MAIN (based on amount, not share_weight)
         for share in main_shares:
             if main_total > 0:
@@ -963,19 +974,19 @@ async def _show_budget_bills_table(update: Update, context: ContextTypes.DEFAULT
             main_text += f"• {share.user_name}: {percentage:.2f}% → {amount_formatted}\n"
 
         if not main_shares:
-            main_text += t("bills.no_bills") + "\n"
+            main_text += t("empty_bills") + "\n"
         else:
             main_total_formatted = format_currency(main_total)
             main_text += f"\n*100.00% → {main_total_formatted}*\n"
 
         # Build CONSERVATION bills table with usernames and percentages (consistent with electricity format)
-        conservation_text = "\n" + t("bills.conservation_bills_header") + "\n"
+        conservation_text = f"\n{t('title_bills_header_conservation')}:\n"
         conservation_total = Decimal("0")
-        
+
         # First pass: calculate total for CONSERVATION
         for share in conservation_shares:
             conservation_total += share.calculated_bill_amount
-        
+
         # Second pass: build formatted table with percentages for CONSERVATION (based on amount, not share_weight)
         for share in conservation_shares:
             if conservation_total > 0:
@@ -986,19 +997,17 @@ async def _show_budget_bills_table(update: Update, context: ContextTypes.DEFAULT
             conservation_text += f"• {share.user_name}: {percentage:.2f}% → {amount_formatted}\n"
 
         if not conservation_shares:
-            conservation_text += t("bills.no_bills") + "\n"
+            conservation_text += t("empty_bills") + "\n"
         else:
             conservation_total_formatted = format_currency(conservation_total)
             conservation_text += f"\n*100.00% → {conservation_total_formatted}*\n"
 
-        message = budget_info + main_text + conservation_text + f"\n{t('bills.confirm_budget_bills')}"
+        message = budget_info + main_text + conservation_text + f"\n{t('msg_confirm_budget_bills')}"
 
         buttons = [
             [
-                InlineKeyboardButton(
-                    t("buttons.create_bills"), callback_data="budget_bills:create"
-                ),
-                InlineKeyboardButton(t("buttons.cancel"), callback_data="budget_bills:cancel"),
+                InlineKeyboardButton(t("btn_create_bills"), callback_data="budget_bills:create"),
+                InlineKeyboardButton(t("btn_cancel"), callback_data="budget_bills:cancel"),
             ]
         ]
         keyboard = InlineKeyboardMarkup(buttons)
@@ -1024,7 +1033,7 @@ async def handle_budget_create_bills(  # noqa: C901
         await cq.answer()
 
         if cq.data == "budget_bills:cancel":
-            await cq.edit_message_text(t("electricity.operation_cancelled"))
+            await cq.edit_message_text(t("msg_operation_cancelled"))
             _clear_budget_context(context)
             return States.END
 
@@ -1072,7 +1081,7 @@ async def handle_budget_create_bills(  # noqa: C901
 
             # Send success message as reply to preserve calculations table
             message = t(
-                "bills.both_created",
+                "msg_bills_created_both",
                 main_count=main_count,
                 conservation_count=conservation_count,
                 period_name=period_name,
@@ -1085,7 +1094,7 @@ async def handle_budget_create_bills(  # noqa: C901
     except Exception as e:
         logger.error("Error in create budget bills handler: %s", e, exc_info=True)
         try:
-            await cq.edit_message_text(t("errors.error_processing"))
+            await cq.edit_message_text(t("err_processing"))
         except Exception:
             pass
         return States.END

@@ -49,7 +49,7 @@ async def handle_ask_command(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
         # Check if LLM feature is enabled
         if not is_llm_enabled():
-            await update.message.reply_text(t("errors.llm_disabled"))
+            await update.message.reply_text(t("err_llm_disabled"))
             return
 
         # Extract the question (everything after /ask)
@@ -75,7 +75,7 @@ async def handle_ask_command(update: Update, context: ContextTypes.DEFAULT_TYPE)
                 user = await get_authenticated_user(session, telegram_id)
             except Exception as e:
                 logger.warning(f"Auth failed for telegram_id={telegram_id}: {e}")
-                await update.message.reply_text(t("errors.not_authorized"))
+                await update.message.reply_text(t("err_not_authorized"))
                 return
 
             # Send typing indicator while processing
@@ -111,7 +111,7 @@ async def handle_ask_command(update: Update, context: ContextTypes.DEFAULT_TYPE)
     except Exception as e:
         logger.error(f"Error in /ask handler: {e}", exc_info=True)
         try:
-            await update.message.reply_text(t("errors.error_processing"))
+            await update.message.reply_text(t("err_processing"))
         except Exception:
             pass
 

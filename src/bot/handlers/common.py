@@ -23,7 +23,7 @@ async def handle_start_command(update: Update, context: ContextTypes.DEFAULT_TYP
             logger.warning("Received /start without message")
             return
 
-        await update.message.reply_text(t("labels.welcome"))
+        await update.message.reply_text(t("msg_welcome"))
         logger.info("Sent welcome message to user %s", update.message.from_user.id)
 
     except Exception as e:
@@ -60,7 +60,7 @@ async def handle_request_command(  # noqa: C901
             from src.bot.config import bot_config
 
             await update.message.reply_text(
-                t("errors.group_chat_error", bot_name=bot_config.telegram_bot_name)
+                t("err_group_chat", bot_name=bot_config.telegram_bot_name)
             )
             return
 
@@ -108,16 +108,14 @@ async def handle_request_command(  # noqa: C901
                     [
                         [
                             InlineKeyboardButton(
-                                text=t("buttons.open_app"),
+                                text=t("btn_open_app"),
                                 web_app=WebAppInfo(url=bot_config.mini_app_url),
                             )
                         ]
                     ]
                 )
 
-                await update.message.reply_text(
-                    t("requests.already_have_access"), reply_markup=keyboard
-                )
+                await update.message.reply_text(t("msg_already_have_access"), reply_markup=keyboard)
                 return
 
             request_service = RequestService(db)
@@ -130,7 +128,7 @@ async def handle_request_command(  # noqa: C901
             if not new_request:
                 # T035: Handle duplicate pending request
                 logger.warning("Duplicate pending request from requester %s", requester_id)
-                await update.message.reply_text(t("requests.duplicate_request"))
+                await update.message.reply_text(t("msg_request_duplicate"))
                 return
 
             # T029: Send confirmation to requester
@@ -158,7 +156,7 @@ async def handle_request_command(  # noqa: C901
         # T035: Handle and log errors
         logger.error("Error processing /request: %s", e, exc_info=True)
         try:
-            await update.message.reply_text(t("errors.error_processing"))
+            await update.message.reply_text(t("err_processing"))
         except Exception as reply_error:
             logger.error("Failed to send error reply: %s", reply_error)
 

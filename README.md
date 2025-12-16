@@ -23,7 +23,7 @@ Edit `.env` before running `make install`:
 | Variable | Description |
 |----------|-------------|
 | `TELEGRAM_BOT_TOKEN` | Your bot token from @BotFather |
-| `DOMAIN` | Your domain (e.g., `sosenki.sharedgoals.ru`) |
+| `DOMAIN` | Your domain |
 | `PORT` | Server port (default: `8000` |
 | `OLLAMA_MODEL` | LLM model (default: `qwen2.5:1.5b`) |
 
@@ -53,7 +53,7 @@ If running behind a router with static IP:
 2. **Environment Variables**:
 
    ```env
-   DOMAIN=sosenki.sharedgoals.ru
+   DOMAIN=sosenki.mydomain.ru
    PORT=8000
    ```
 
@@ -65,7 +65,7 @@ If running behind a router with static IP:
    # {\"status\":\"ok\"}
 
    # Check external connectivity
-   curl https://sosenki.sharedgoals.ru/health
+   curl https://sosenki.mydomain.ru/health
    # {\"status\":\"ok\"}
    ```
 

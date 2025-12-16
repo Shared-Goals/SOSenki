@@ -190,7 +190,10 @@ class BillsService:
         return list(owner_totals.items())
 
     async def create_main_bills(
-        self, period_id: int, calculations: list[tuple[int, Decimal]] | list[OwnerShare], actor_id: int | None = None
+        self,
+        period_id: int,
+        calculations: list[tuple[int, Decimal]] | list[OwnerShare],
+        actor_id: int | None = None,
     ) -> int:
         """Create MAIN bills for calculated owner amounts.
 
