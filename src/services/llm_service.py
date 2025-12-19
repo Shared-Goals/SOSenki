@@ -19,6 +19,7 @@ from src.prompts import ADMIN_SYSTEM_PROMPT, USER_SYSTEM_PROMPT
 from src.services.balance_service import BalanceCalculationService
 from src.services.locale_service import CURRENCY, format_local_datetime
 from src.services.period_service import AsyncServicePeriodService
+from src.services.transaction_service import TransactionService
 
 logger = logging.getLogger(__name__)
 
@@ -128,6 +129,39 @@ def _create_service_period_tool() -> dict[str, Any]:
     }
 
 
+def _create_transaction_tool() -> dict[str, Any]:
+    """Tool definition for create_transaction (admin only)."""
+    return {
+        "type": "function",
+        "function": {
+            "name": "create_transaction",
+            "description": "Create a new transaction between accounts. Admin-only operation.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "from_account_id": {
+                        "type": "integer",
+                        "description": "Source account ID",
+                    },
+                    "to_account_id": {
+                        "type": "integer",
+                        "description": "Destination account ID",
+                    },
+                    "amount": {
+                        "type": "number",
+                        "description": "Transaction amount (must be positive)",
+                    },
+                    "description": {
+                        "type": "string",
+                        "description": "Transaction description",
+                    },
+                },
+                "required": ["from_account_id", "to_account_id", "amount", "description"],
+            },
+        },
+    }
+
+
 def get_user_tools() -> list[dict[str, Any]]:
     """Get tools available to regular users (read-only)."""
     return [
@@ -144,6 +178,7 @@ def get_admin_tools() -> list[dict[str, Any]]:
         _list_bills_tool(),
         _get_period_info_tool(),
         _create_service_period_tool(),
+        _create_transaction_tool(),
     ]
 
 
@@ -194,6 +229,16 @@ async def execute_tool(
             start_date = arguments.get("start_date", "")
             end_date = arguments.get("end_date", "")
             return await _execute_create_service_period(ctx, name, start_date, end_date)
+        elif tool_name == "create_transaction":
+            if not ctx.is_admin:
+                return json.dumps({"error": "Admin access required for this operation"})
+            from_account_id = arguments.get("from_account_id")
+            to_account_id = arguments.get("to_account_id")
+            amount = arguments.get("amount")
+            description = arguments.get("description", "")
+            return await _execute_create_transaction(
+                ctx, from_account_id, to_account_id, amount, description
+            )
         else:
             return json.dumps({"error": f"Unknown tool: {tool_name}"})
     except Exception as e:
@@ -304,9 +349,58 @@ async def _execute_create_service_period(
         return json.dumps({"error": str(e)})
 
 
-# ============================================================================
-# Ollama Service
-# ============================================================================
+async def _execute_create_transaction(
+    ctx: ToolContext,
+    from_account_id: int,
+    to_account_id: int,
+    amount: float,
+    description: str,
+) -> str:
+    """Execute create_transaction tool (admin only)."""
+    if not from_account_id or not to_account_id:
+        return json.dumps({"error": "Both from_account_id and to_account_id are required"})
+
+    if not amount or amount <= 0:
+        return json.dumps({"error": "Amount must be positive"})
+
+    try:
+        service = TransactionService(ctx.session)
+
+        # Validate accounts exist
+        from_account = await service.get_account_by_id(from_account_id)
+        if not from_account:
+            return json.dumps({"error": f"From account {from_account_id} not found"})
+
+        to_account = await service.get_account_by_id(to_account_id)
+        if not to_account:
+            return json.dumps({"error": f"To account {to_account_id} not found"})
+
+        # Create transaction
+        from decimal import Decimal
+
+        transaction = await service.create_transaction(
+            from_account_id=from_account_id,
+            to_account_id=to_account_id,
+            amount=Decimal(str(amount)),
+            description=description,
+        )
+
+        return json.dumps(
+            {
+                "success": True,
+                "transaction_id": transaction.id,
+                "from_account_name": from_account.name,
+                "to_account_name": to_account.name,
+                "amount": float(transaction.amount),
+                "description": transaction.description,
+                "transaction_date": transaction.transaction_date.isoformat(),
+            }
+        )
+    except ValueError as e:
+        return json.dumps({"error": str(e)})
+    except Exception as e:
+        logger.error(f"Error in _execute_create_transaction: {e}", exc_info=True)
+        return json.dumps({"error": str(e)})
 
 
 class OllamaService:

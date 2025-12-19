@@ -129,8 +129,12 @@ def main():
     """Main entry point."""
     import argparse
 
-    # Get default port from environment or use 8000
-    default_port = int(os.getenv("PORT", "8000"))
+    # Get port from environment (required)
+    port_env = os.getenv("PORT")
+    if not port_env:
+        logger.critical("PORT not set in environment. Check .env file.")
+        raise RuntimeError("PORT environment variable is required")
+    default_port = int(port_env)
 
     parser = argparse.ArgumentParser(description="SOSenki Bot")
     parser.add_argument(

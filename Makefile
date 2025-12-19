@@ -5,7 +5,15 @@
 #            - User tools: get_balance, list_bills, get_period_info (read-only)
 #            - Admin tools: + create_service_period (write)
 #            - Check user.is_administrator for admin tools
+# TODO feat: Adopt dev workflow for SSH-Remote VSCode
+# TODO refactor: Adopt https://github.com/exo-explore/exo/blob/main/.cursorrules
+# TODO refactor: Remove transaction's period FK
 # TODO agent: Add confirmation prompts for write operations
+#
+# TODO security: Add auth_date expiration check (±5min) in user_service.py - replay attack risk
+# TODO security: Use hmac.compare_digest() in user_service.py - timing attack risk
+# TODO security: Add rate limiting (slowapi) to API endpoints - DoS/brute force risk
+# TODO security: Set allow_credentials=False in CORS config (webhook.py) - credential leak risk
 #
 # --- Features ---
 # TODO feat: Invest tracking module
@@ -290,7 +298,11 @@ coverage:
 # Stop any running server on the configured port
 # This is automatically called by serve and test targets
 stop:
-	@PORT=$$(grep '^PORT=' .env 2>/dev/null | cut -d'=' -f2 || echo "8000"); \
+	@PORT=$$(grep '^PORT=' .env 2>/dev/null | cut -d'=' -f2); \
+	if [ -z "$$PORT" ]; then \
+		echo "ERROR: PORT not found in .env file"; \
+		exit 1; \
+	fi; \
 	if lsof -Pi :$$PORT -sTCP:LISTEN -t >/dev/null 2>&1; then \
 		echo "⚠️  Port $$PORT is in use. Stopping existing server..."; \
 		PID=$$(lsof -t -i :$$PORT); \

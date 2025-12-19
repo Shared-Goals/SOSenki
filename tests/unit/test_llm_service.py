@@ -31,13 +31,14 @@ class TestToolDefinitions:
     def test_get_admin_tools_includes_write_operations(self):
         """Verify admin tools include write operations."""
         tools = get_admin_tools()
-        assert len(tools) == 4
+        assert len(tools) == 5
 
         tool_names = [t["function"]["name"] for t in tools]
         assert "get_balance" in tool_names
         assert "list_bills" in tool_names
         assert "get_period_info" in tool_names
         assert "create_service_period" in tool_names
+        assert "create_transaction" in tool_names
 
     def test_tool_schemas_are_valid(self):
         """Verify all tool schemas have required structure."""

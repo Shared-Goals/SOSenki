@@ -11,8 +11,11 @@ if [ -f ".env" ]; then
   set +a
 fi
 
-# Use PORT from environment or default to 8000
-PORT="${PORT:-8000}"
+# PORT is loaded from .env above - no default needed
+if [ -z "$PORT" ]; then
+  echo "ERROR: PORT not set in .env file"
+  exit 1
+fi
 
 # Start ngrok if not already running
 if ! pgrep -f "ngrok http $PORT" > /dev/null; then

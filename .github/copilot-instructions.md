@@ -1,6 +1,6 @@
 # SOSenki Development Guidelines
 
-Last updated: 2025-12-16
+Last updated: 2025-12-19
 
 ## Architecture Overview
 
@@ -13,8 +13,8 @@ Last updated: 2025-12-16
 - Python 3.11+ (mandatory minimum)
 - FastAPI (async API serving)
 - FastMCP (LLM tool server - provides `get_balance`, `list_bills`, `create_service_period`)
-- SQLAlchemy ORM + Alembic (migrations)
-- SQLite (development database)
+- SQLAlchemy ORM + Alembic (migrations in `alembic/versions/`)
+- SQLite (development: `sosenki.dev.db`, production: `sosenki.db`)
 - `python-telegram-bot` (async webhooks, bot commands)
 - Ollama (local LLM for `/ask` command tool-calling)
 - Google Sheets API (for seeding/configuration)
@@ -43,9 +43,10 @@ src/
     balance_service.py    # Balance calculation logic
     period_service.py     # ServicePeriod CRUD operations
     llm_service.py        # Ollama integration + tool execution
-    localizer.py          # i18n (t("category.key") lookup from translations.json)
+    localizer.py          # i18n with flat key convention (see i18n section)
   static/mini_app/  # Frontend (HTML/CSS/JS + translations.json)
-  migrations/       # Database DDL via Alembic (no separate versions folder - single 001_initial_schema.py)
+  prompts/          # LLM system prompts (.prompt.md files)
+alembic/versions/   # Database migrations (Alembic)
 tests/
   unit/             # Unit tests (services, models, utilities)
   contract/         # API contract tests (endpoint schemas, MCP tools)
@@ -92,9 +93,10 @@ scripts/            # Maintenance scripts (check_translations.py, analyze_dead_c
 - Runs all test suites (unit, contract, integration)
 - Reports failures properly
 
-**For running scripts, use `uv run`:**
-- ✅ `uv run python scripts/script.py`
-- ✅ `uv run ruff check .`
+**For running scripts and code snippets:**
+- ✅ **Preferred**: Use Pylance MCP for Python code snippets (avoids shell quoting issues)
+- ✅ `uv run python scripts/script.py` for standalone scripts
+- ✅ `uv run ruff check .` for linting
 
 ## Commands Reference
 
@@ -151,21 +153,66 @@ response = await ollama.chat(query, tools=get_admin_tools() if is_admin else get
 
 **Single source of truth:** `src/static/mini_app/translations.json`
 
+**Flat key convention with prefixes:**
+- `btn_*` — Clickable buttons (`btn_approve`, `btn_cancel`)
+- `msg_*` — Informational messages/notifications (`msg_welcome`, `msg_period_created`)
+- `err_*` — Error messages (`err_invalid_number`, `err_not_authorized`)
+- `prompt_*` — Input prompts for bot conversations (`prompt_meter_start`, `prompt_budget_main`)
+- `status_*` — State labels (`status_open`, `status_closed`, `status_pending`)
+- `empty_*` — Empty state messages (`empty_bills`, `empty_transactions`)
+- `nav_*` — Navigation labels (`nav_balance`, `nav_invest`)
+
 **Usage patterns:**
-- Python: `from src.services.localizer import t; message = t("labels.welcome")`
-- JavaScript: `t("labels.welcome")` (app.js loads translations)
-- HTML: `<span data-i18n="labels.welcome"></span>`
+```python
+# Python
+from src.services.localizer import t
+message = t("msg_welcome")
+message = t("err_group_chat", bot_name="SOSenkiBot")  # with placeholder
+```
+```javascript
+// JavaScript (app.js loads translations)
+t("btn_approve")
+```
+```html
+<!-- HTML data attribute -->
+<span data-i18n="btn_open_app"></span>
+```
 
-**Flat namespace:** `buttons`, `labels`, `status`, `errors`, `requests`, `admin`, `electricity`, `ui`
+**Validation:** `make check-i18n` finds missing/unused keys by scanning Python, JS, and HTML files.
 
-**Validation:** `make check-i18n` finds missing/unused keys by scanning:
-- Python files: `t("category.key")` pattern
-- JS files: `t("category.key")` pattern  
-- HTML files: `data-i18n="category.key"` attributes
+### 4. Helper Functions & Utilities
 
-### 4. Database Schema (YAGNI enforcement)
+**Locale & Formatting (`src/services/locale_service.py`):**
+- `format_currency(amount)` — Russian currency formatting with spaces (e.g., "100 000 ₽")
+- `format_local_datetime(dt)` — Locale-aware datetime formatting
+- `get_currency_symbol()` — Current locale currency symbol
 
-**Single migration file:** NO separate migration files exist — all schema is in ONE file that gets modified directly
+**Parsing (`src/utils/parsers.py`):**
+- `parse_russian_decimal(text)` — Parse Russian number format to Decimal
+- `parse_russian_currency(text)` — Parse currency strings to Decimal
+
+**Usage Pattern:**
+```python
+from src.services.locale_service import format_currency
+from src.utils.parsers import parse_russian_decimal
+
+# Always use helpers for consistent formatting
+amount_display = format_currency(transaction.amount)  # "85 000 ₽"
+user_input = parse_russian_decimal("85 000,50")       # Decimal('85000.50')
+```
+
+**Before implementing custom parsing/formatting:**
+1. Check if helper already exists in `locale_service.py` or `parsers.py`
+2. Use existing helpers for consistency across the application
+3. Only create new helpers if functionality doesn't exist
+
+### 5. Database Schema & Migrations
+
+**Production migration workflow (since commit 9c1b57a):**
+- Alembic migrations in `alembic/versions/` using standard workflow
+- Generate: `uv run alembic revision --autogenerate -m "description"`
+- Apply: `uv run alembic upgrade head`
+- Check status: `uv run alembic current`
 
 **Role-based access (src/models/user.py):**
 - `is_active` — Primary gate for Mini App access
@@ -177,7 +224,12 @@ response = await ollama.chat(query, tools=get_admin_tools() if is_admin else get
 
 Users can have multiple roles simultaneously via independent boolean flags.
 
-### 5. Testing Strategy
+### 6. Testing Strategy
+
+**Test database isolation:**
+- Tests use `test_sosenki.db` (configured in `tests/conftest.py`)
+- Fresh schema applied via Alembic migrations before each test run
+- Dev database: `sosenki.dev.db`, Production: `sosenki.db`
 
 **Contract tests (`tests/contract/`):**
 - API endpoint schemas (Pydantic model validation)
@@ -223,9 +275,8 @@ Build only what is required for the current MVP. Every line of code MUST serve a
 - No speculative tables/fields anticipating future features
 - No "future-proofing" entities or redundant fields (e.g., remove derived timestamps)
 - Consolidate entities with different names into unified models with role/flag fields
-- Maintain single `001_initial_schema.py` migration reflecting complete current MVP schema
-- Modify `001_initial_schema.py` directly when schema changes—do NOT create separate migration files
-- After updates, verify with `make db-reset && make seed`
+- Use standard Alembic migration workflow: `alembic revision --autogenerate -m "description"`
+- After schema changes, verify with `uv run alembic upgrade head && make seed`
 - Test before adding any index; every index MUST map to a documented query pattern
 
 ### II. KISS (Keep It Simple, Stupid)
@@ -254,8 +305,8 @@ Eliminate code duplication through abstraction and reuse. When logic appears in 
 **Code Review Checklist:**
 - [ ] Constitution compliance verified (YAGNI, KISS, DRY adherence)
 - [ ] Schema design follows YAGNI Rule - Database Schema (every table/column justified by spec.md)
-- [ ] No separate migration files created (`001_initial_schema.py` modified directly only)
-- [ ] Developer ran `make seed` and verified success
+- [ ] Migration generated via `alembic revision --autogenerate` if schema changed
+- [ ] Developer ran `uv run alembic upgrade head && make seed` and verified success
 - [ ] No secrets or hard-coded paths in diff
 - [ ] Context7 documentation verified for all new dependencies
 

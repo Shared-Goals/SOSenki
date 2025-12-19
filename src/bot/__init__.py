@@ -28,6 +28,18 @@ from src.bot.handlers.admin_bills import (
     handle_electricity_rate,
     handle_period_selection,
 )
+from src.bot.handlers.admin_payout import (
+    States as PayoutStates,
+)
+from src.bot.handlers.admin_payout import (
+    handle_amount_input,
+    handle_confirm,
+    handle_description_input,
+    handle_from_selection,
+    handle_payout_cancel,
+    handle_payout_command,
+    handle_to_selection,
+)
 from src.bot.handlers.admin_periods import (
     handle_close_period_confirmation,
     handle_period_action_selection,
@@ -171,6 +183,41 @@ async def create_bot_app() -> Application:
         per_message=False,
     )
     app.add_handler(periods_conv)
+
+    # Register payout (transaction) management command with ConversationHandler
+    payout_conv = ConversationHandler(
+        entry_points=[CommandHandler("payout", handle_payout_command)],
+        states={
+            PayoutStates.SELECT_FROM: [
+                CallbackQueryHandler(
+                    handle_from_selection,
+                    pattern="^payout_from:",
+                )
+            ],
+            PayoutStates.SELECT_TO: [
+                CallbackQueryHandler(
+                    handle_to_selection,
+                    pattern="^payout_to:",
+                )
+            ],
+            PayoutStates.ENTER_AMOUNT: [
+                MessageHandler(filters.TEXT & ~filters.COMMAND, handle_amount_input)
+            ],
+            PayoutStates.ENTER_DESCRIPTION: [
+                MessageHandler(filters.TEXT & ~filters.COMMAND, handle_description_input)
+            ],
+            PayoutStates.CONFIRM: [
+                CallbackQueryHandler(
+                    handle_confirm,
+                    pattern="^payout_confirm:",
+                )
+            ],
+        },
+        fallbacks=[CommandHandler("payout", handle_payout_cancel)],
+        allow_reentry=True,
+        per_message=False,
+    )
+    app.add_handler(payout_conv)
 
     # Initialize any other bot-level setup here
 

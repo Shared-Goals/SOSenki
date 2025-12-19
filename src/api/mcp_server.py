@@ -13,6 +13,7 @@ from sqlalchemy.orm import sessionmaker
 from src.services.balance_service import BalanceCalculationService
 from src.services.locale_service import CURRENCY, format_local_datetime
 from src.services.period_service import AsyncServicePeriodService
+from src.services.transaction_service import TransactionService
 
 logger = logging.getLogger(__name__)
 
@@ -305,6 +306,83 @@ async def create_service_period(
         )
     except Exception as e:
         logger.error(f"Error in create_service_period: {e}", exc_info=True)
+        return json.dumps({"error": str(e)})
+
+
+@mcp.tool
+async def create_transaction(
+    from_account_id: int,
+    to_account_id: int,
+    amount: float,
+    description: str,
+) -> str:
+    """Create a new transaction between accounts.
+
+    Admin-only tool. Creates a transaction from one account to another
+    with auto-generated description and audit logging.
+
+    Args:
+        from_account_id: Source account ID
+        to_account_id: Destination account ID
+        amount: Transaction amount (must be positive)
+        description: Transaction description
+
+    Returns:
+        JSON string with created transaction details or error message.
+        On success, includes transaction_id, from_account, to_account, amount, date.
+        On error, includes error message and validation details.
+    """
+    if not _session_maker:
+        return json.dumps({"error": "Database not initialized"})
+
+    # Validate amount
+    if amount <= 0:
+        return json.dumps({"error": "Amount must be positive"})
+
+    try:
+        async with _session_maker() as session:
+            service = TransactionService(session)
+
+            # Validate accounts exist
+            from_account = await service.get_account_by_id(from_account_id)
+            if not from_account:
+                return json.dumps({"error": f"From account {from_account_id} not found"})
+
+            to_account = await service.get_account_by_id(to_account_id)
+            if not to_account:
+                return json.dumps({"error": f"To account {to_account_id} not found"})
+
+            # Create transaction
+            from decimal import Decimal
+
+            transaction = await service.create_transaction(
+                from_account_id=from_account_id,
+                to_account_id=to_account_id,
+                amount=Decimal(str(amount)),
+                description=description,
+            )
+
+            await session.commit()
+
+            return json.dumps(
+                {
+                    "success": True,
+                    "transaction_id": transaction.id,
+                    "from_account_id": from_account.id,
+                    "from_account_name": from_account.name,
+                    "to_account_id": to_account.id,
+                    "to_account_name": to_account.name,
+                    "amount": float(transaction.amount),
+                    "description": transaction.description,
+                    "transaction_date": transaction.transaction_date.isoformat(),
+                    "currency": CURRENCY,
+                }
+            )
+    except ValueError as e:
+        # Validation error from service
+        return json.dumps({"error": str(e)})
+    except Exception as e:
+        logger.error(f"Error in create_transaction: {e}", exc_info=True)
         return json.dumps({"error": str(e)})
 
 
