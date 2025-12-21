@@ -37,12 +37,6 @@ class Transaction(Base, BaseModel):
         index=True,
         comment="Destination account",
     )
-    service_period_id: Mapped[int | None] = mapped_column(
-        ForeignKey("service_periods.id"),
-        nullable=True,
-        index=True,
-        comment="Associated service period",
-    )
 
     # Transaction details
     amount: Mapped[Decimal] = mapped_column(
@@ -72,11 +66,6 @@ class Transaction(Base, BaseModel):
         back_populates="to_transactions",
         foreign_keys=[to_account_id],
     )
-    service_period: Mapped["ServicePeriod | None"] = relationship(  # noqa: F821
-        "ServicePeriod",
-        back_populates="transactions",
-        foreign_keys=[service_period_id],
-    )
     budget_item_id: Mapped[int | None] = mapped_column(
         ForeignKey("budget_items.id"),
         nullable=True,
@@ -93,7 +82,6 @@ class Transaction(Base, BaseModel):
         Index("idx_transaction_from_account", "from_account_id"),
         Index("idx_transaction_to_account", "to_account_id"),
         Index("idx_transaction_from_to", "from_account_id", "to_account_id"),
-        Index("idx_transaction_period", "service_period_id"),
         Index("idx_transaction_date", "transaction_date"),
         Index("idx_transaction_budget_item", "budget_item_id"),
     )

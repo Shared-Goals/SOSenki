@@ -204,7 +204,6 @@ class TransactionService:
             amount=amount,
             transaction_date=date.today(),
             description=description,
-            service_period_id=None,  # Transactions not bound to periods per user request
             budget_item_id=None,
         )
 

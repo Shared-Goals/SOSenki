@@ -92,11 +92,6 @@ class ServicePeriod(Base, BaseModel):
         comment="Electricity transmission losses ratio",
     )
     # Relationships
-    transactions: Mapped[list["Transaction"]] = relationship(  # noqa: F821
-        "Transaction",
-        back_populates="service_period",
-        cascade="all, delete-orphan",
-    )
     bills: Mapped[list["Bill"]] = relationship(  # noqa: F821
         "Bill",
         back_populates="service_period",
