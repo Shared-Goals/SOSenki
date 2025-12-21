@@ -2,7 +2,11 @@
 
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, WebAppInfo
 from telegram.ext import Application
+from sqlalchemy import select
+from sqlalchemy.orm import selectinload
 
+from src.models.account import Account, AccountType
+from src.models.user import User
 from src.services.localizer import t
 
 
@@ -158,6 +162,56 @@ class NotificationService:
         """
         # T050: Send rejection message after rejection
         await self.send_message(requester_id, t("msg_admin_rejection"))
+
+    async def notify_account_owners_and_representatives(
+        self,
+        session,
+        account_ids: list[int],
+        text: str,
+        skip_telegram_id: int | None = None,
+    ) -> None:
+        """Notify owners and their representatives for the given accounts.
+
+        Filters recipients to active users with telegram_id, and deduplicates
+        by telegram_id. Optionally skips a specific telegram_id (e.g., the
+        initiating admin).
+        """
+        if not account_ids:
+            return
+
+        account_result = await session.execute(
+            select(Account)
+                .options(selectinload(Account.user))
+                .where(Account.id.in_(account_ids), Account.account_type == AccountType.OWNER)
+        )
+        owner_users = [
+            account.user
+            for account in account_result.scalars()
+            if account.user and account.user.is_active and account.user.telegram_id
+        ]
+
+        owner_ids = {user.id for user in owner_users}
+        if not owner_ids:
+            return
+
+        reps_result = await session.execute(
+            select(User).where(
+                User.representative_id.in_(owner_ids),
+                User.is_active.is_(True),
+                User.telegram_id.isnot(None),
+            )
+        )
+        representatives = reps_result.scalars().all()
+
+        seen: set[int] = set()
+        recipients = [*owner_users, *representatives]
+        for user in recipients:
+            if not user.telegram_id or user.telegram_id == skip_telegram_id:
+                continue
+            if user.telegram_id in seen:
+                continue
+            seen.add(user.telegram_id)
+            await self.send_message(chat_id=user.telegram_id, text=text)
 
 
 __all__ = ["NotificationService"]

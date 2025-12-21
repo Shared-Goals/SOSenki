@@ -17,6 +17,7 @@ from src.models.account import AccountType
 from src.services import AsyncSessionLocal
 from src.services.locale_service import format_currency
 from src.services.localizer import t
+from src.services.notification_service import NotificationService
 from src.services.transaction_service import TransactionService
 from src.utils.parsers import parse_russian_decimal
 
@@ -591,12 +592,24 @@ async def handle_confirm(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
                     transaction.id,
                 )
 
-                # Reply with success message (not edit, for forwardability)
+                # Build success text once for admin and owner notifications
                 success_text = t(
                     "msg_transaction_created",
                     description=description,
                     date=transaction.transaction_date.strftime("%d.%m.%Y"),
                 )
+
+                # Notify involved owners and their representatives (active with telegram_id)
+                try:
+                    if context.application:
+                        notifier = NotificationService(context.application)
+                        await notifier.notify_account_owners_and_representatives(
+                            session=session,
+                            account_ids=[from_account.id, to_account.id],
+                            text=success_text,
+                        )
+                except Exception:
+                    logger.exception("Error notifying owners/representatives about payout")
 
                 # Show final result directly
                 await cq.edit_message_text(

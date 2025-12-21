@@ -1,23 +1,16 @@
 # ============================================================================
 # Roadmap (commit-based milestones)
 # ============================================================================
-# TODO feat: Create notifications users from Telegram
+# TODO feat: Adopt dev environment in the LAN with prod - edit caddy template for dev host and 8443 port
+# TODO feat: Invest tracking module
 # TODO feat: Close Electricity Service Period 1 Sept 2025 - 1 Jan 2026
 # TODO agent: Add role-based tool filtering
-#            - User tools: get_balance, list_bills, get_period_info (read-only)
-#            - Admin tools: + create_service_period (write)
-#            - Check user.is_administrator for admin tools
 # TODO agent: Add confirmation prompts for write operations
-# TODO feat: Adopt dev environment in the LAN with prod - edit caddy template for dev host and 8443 port
-#
 # TODO security: Add auth_date expiration check (±5min) in user_service.py - replay attack risk
 # TODO security: Use hmac.compare_digest() in user_service.py - timing attack risk
 # TODO security: Add rate limiting (slowapi) to API endpoints - DoS/brute force risk
 # TODO security: Set allow_credentials=False in CORS config (webhook.py) - credential leak risk
-#
 # TODO refactor: Remove complex implementations C901
-# --- Features ---
-# TODO feat: Invest tracking module
 # TODO feat: Rules/Job descriptions module
 #
 # ============================================================================
