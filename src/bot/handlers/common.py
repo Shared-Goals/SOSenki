@@ -5,10 +5,11 @@ import logging
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update, WebAppInfo
 from telegram.ext import ContextTypes
 
-from src.services import SessionLocal, UserServiceSync
+from src.services import AsyncSessionLocal
 from src.services.localizer import t
 from src.services.notification_service import NotificationService
 from src.services.request_service import RequestService
+from src.services.user_service import UserService
 
 logger = logging.getLogger(__name__)
 
@@ -93,11 +94,10 @@ async def handle_request_command(  # noqa: C901
         )
 
         # T028: Use RequestService to create request (validates no duplicate)
-        db = SessionLocal()
-        try:
+        async with AsyncSessionLocal() as session:
             # Check if user already exists with this telegram_id and is active
-            user_service = UserServiceSync(db)
-            existing_user = user_service.get_active_user_by_telegram_id(requester_id)
+            user_service = UserService(session)
+            existing_user = await user_service.get_active_user_by_telegram_id(requester_id)
 
             if existing_user:
                 logger.info("User %s (%s) already has access", requester_id, existing_user.name)
@@ -118,7 +118,7 @@ async def handle_request_command(  # noqa: C901
                 await update.message.reply_text(t("msg_already_have_access"), reply_markup=keyboard)
                 return
 
-            request_service = RequestService(db)
+            request_service = RequestService(session)
             new_request = await request_service.create_request(
                 user_telegram_id=requester_id,
                 request_message=request_message,
@@ -148,9 +148,6 @@ async def handle_request_command(  # noqa: C901
             except Exception as e:
                 logger.error("Failed to send admin notification: %s", e)
                 # Don't fail the handler if admin notification fails
-
-        finally:
-            db.close()
 
     except Exception as e:
         # T035: Handle and log errors

@@ -90,7 +90,7 @@ class TestHandleRequestCommand:
         update = MagicMock(spec=Update)
         update.message = message
 
-        with patch("src.bot.handlers.common.SessionLocal"):
+        with patch("src.bot.handlers.common.AsyncSessionLocal"):
             with patch("src.bot.config.bot_config"):
                 await handle_request_command(update, mock_context)
                 message.reply_text.assert_called_once()
@@ -107,7 +107,7 @@ class TestHandleRequestCommand:
         update = MagicMock(spec=Update)
         update.message = message
 
-        with patch("src.bot.handlers.common.SessionLocal"):
+        with patch("src.bot.handlers.common.AsyncSessionLocal"):
             with patch("src.bot.config.bot_config"):
                 await handle_request_command(update, mock_context)
                 message.reply_text.assert_called_once()
@@ -135,7 +135,7 @@ class TestHandleRequestCommand:
             return_value=MagicMock(scalar_one_or_none=MagicMock(return_value=None))
         )
 
-        with patch("src.bot.handlers.common.SessionLocal", return_value=mock_db):
+        with patch("src.bot.handlers.common.AsyncSessionLocal", return_value=mock_db):
             with patch("src.bot.handlers.common.RequestService") as mock_service_class:
                 mock_service = AsyncMock()
                 mock_service.store_request = AsyncMock(return_value=MagicMock())
@@ -167,7 +167,7 @@ class TestHandleRequestCommand:
             return_value=MagicMock(scalar_one_or_none=MagicMock(return_value=None))
         )
 
-        with patch("src.bot.handlers.common.SessionLocal", return_value=mock_db):
+        with patch("src.bot.handlers.common.AsyncSessionLocal", return_value=mock_db):
             with patch("src.bot.handlers.common.RequestService") as mock_service_class:
                 mock_service = AsyncMock()
                 mock_service.store_request = AsyncMock(return_value=MagicMock())
@@ -199,7 +199,7 @@ class TestHandleRequestCommand:
             return_value=MagicMock(scalar_one_or_none=MagicMock(return_value=None))
         )
 
-        with patch("src.bot.handlers.common.SessionLocal", return_value=mock_db):
+        with patch("src.bot.handlers.common.AsyncSessionLocal", return_value=mock_db):
             with patch("src.bot.handlers.common.RequestService") as mock_service_class:
                 mock_service = AsyncMock()
                 mock_service.store_request = AsyncMock(return_value=MagicMock())
@@ -232,7 +232,7 @@ class TestHandleRequestCommand:
             return_value=MagicMock(scalar_one_or_none=MagicMock(return_value=mock_existing_user))
         )
 
-        with patch("src.bot.handlers.common.SessionLocal", return_value=mock_db):
+        with patch("src.bot.handlers.common.AsyncSessionLocal", return_value=mock_db):
             with patch("src.bot.config.bot_config"):
                 await handle_request_command(update, mock_context)
 
@@ -262,7 +262,7 @@ class TestHandleAdminResponse:
         update.message = message
 
         mock_db = AsyncMock()
-        with patch("src.bot.handlers.common.SessionLocal", return_value=mock_db):
+        with patch("src.bot.handlers.common.AsyncSessionLocal", return_value=mock_db):
             await handle_admin_response(update, mock_context)
 
 
@@ -292,6 +292,6 @@ class TestHandleAdminCallback:
         update.callback_query = query
 
         mock_db = AsyncMock()
-        with patch("src.bot.handlers.common.SessionLocal", return_value=mock_db):
+        with patch("src.bot.handlers.common.AsyncSessionLocal", return_value=mock_db):
             with patch("src.bot.handlers.admin_requests.AdminService"):
                 await handle_admin_callback(update, mock_context)

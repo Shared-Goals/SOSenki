@@ -287,13 +287,13 @@ async def handle_period_selection(  # noqa: C901
             buttons = [
                 [
                     InlineKeyboardButton(
-                        t("action_create_by_readings"),
+                        t("btn_create_by_readings"),
                         callback_data=f"bill_action:readings:{period_id}",
                     )
                 ],
                 [
                     InlineKeyboardButton(
-                        t("action_create_by_budget"),
+                        t("btn_create_by_budget"),
                         callback_data=f"bill_action:budget:{period_id}",
                     )
                 ],

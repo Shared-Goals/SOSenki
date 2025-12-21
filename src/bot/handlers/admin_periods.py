@@ -118,9 +118,9 @@ async def handle_periods_command(update: Update, context: ContextTypes.DEFAULT_T
 
         # Show action menu
         buttons = [
-            [InlineKeyboardButton(t("action_new_period"), callback_data="period_action:create")],
-            [InlineKeyboardButton(t("action_view_periods"), callback_data="period_action:view")],
-            [InlineKeyboardButton(t("action_close_period"), callback_data="period_action:close")],
+            [InlineKeyboardButton(t("btn_new_period"), callback_data="period_action:create")],
+            [InlineKeyboardButton(t("btn_view_periods"), callback_data="period_action:view")],
+            [InlineKeyboardButton(t("btn_close_period"), callback_data="period_action:close")],
         ]
         keyboard = InlineKeyboardMarkup(buttons)
 

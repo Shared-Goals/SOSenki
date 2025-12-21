@@ -1,3 +1,4 @@
+# follow **every** rule exactly; report any violation instead of silently fixing it.
 # SOSenki Development Guidelines
 
 Last updated: 2025-12-20
@@ -186,14 +187,16 @@ response = await ollama.chat(query, tools=get_admin_tools() if is_admin else get
 
 **Single source of truth:** `src/static/mini_app/translations.json`
 
-**Flat key convention with prefixes:**
-- `btn_*` — Clickable buttons (`btn_approve`, `btn_cancel`)
-- `msg_*` — Informational messages/notifications (`msg_welcome`, `msg_period_created`)
+**Flat key convention with prefixes (alphabetical order):**
+- `btn_*` — Clickable buttons (`btn_approve`, `btn_cancel`, `btn_new_period`, `btn_meter_new`)
+- `empty_*` — Empty state messages (`empty_bills`, `empty_transactions`)
 - `err_*` — Error messages (`err_invalid_number`, `err_not_authorized`)
+- `hint_*` — Helper hints (`hint_suggested_amount`, `hint_previous_value`)
+- `label_*` — Generic labels (`label_period`, `label_weight`, `label_tenant`)
+- `msg_*` — Informational messages/notifications (`msg_welcome`, `msg_period_created`)
 - `prompt_*` — Input prompts for bot conversations (`prompt_meter_start`, `prompt_budget_main`)
 - `status_*` — State labels (`status_open`, `status_closed`, `status_pending`)
-- `empty_*` — Empty state messages (`empty_bills`, `empty_transactions`)
-- `nav_*` — Navigation labels (`nav_balance`, `nav_invest`)
+- `title_*` — Section headers (`title_existing_periods`, `title_status`)
 
 **Usage patterns:**
 ```python
@@ -239,7 +242,41 @@ user_input = parse_russian_decimal("85 000,50")       # Decimal('85000.50')
 2. Use existing helpers for consistency across the application
 3. Only create new helpers if functionality doesn't exist
 
-### 5. Database Schema & Migrations
+### 5. Audit Logging (`src/services/audit_service.py`)
+
+**Unified audit trail for all business-critical entity modifications** in service layer:
+
+**Pattern:**
+```python
+from src.services.audit_service import AuditService
+
+# After creating/updating entity and flush()
+await AuditService.log(
+    session=self.session,
+    entity_type="transaction",  # lowercase: transaction, bill, service_period, electricity_reading
+    entity_id=entity.id,
+    action="create",  # present tense: create, update, delete, close, approve, reject
+    actor_id=admin_user.id,  # User ID performing action (None for system operations)
+    changes={...},  # Optional dict with field names and values
+)
+```
+
+**Conventions:**
+- `entity_type` — Lowercase snake_case (e.g., `electricity_reading`, `service_period`)
+- `action` — Present tense verb (`create`, `update`, `delete`, `close`, `approve`, `reject`)
+- `actor_id` — User ID performing the action (required for user-initiated operations)
+- Place audit call **in service methods**, not handlers
+- Call `session.flush()` before audit logging to ensure entity ID exists
+
+**Current coverage:**
+- ✅ Transaction (TransactionService.create_transaction)
+- ✅ Bill (BillsService.create_*_bills methods)
+- ✅ ServicePeriod (PeriodService create/update/close methods)
+- ✅ ElectricityReading (ElectricityReadingService create/update/delete)
+- ✅ AccessRequest (RequestService.create_request, AdminService approve/reject)
+- ⚠️ User (deferred - complex user lifecycle, lower priority)
+
+### 6. Database Schema & Migrations
 
 **Production migration workflow:**
 - Alembic migrations in `alembic/versions/` using standard workflow

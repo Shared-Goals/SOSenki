@@ -1,6 +1,8 @@
 """Unit tests for AuditService to increase coverage."""
 
-from unittest.mock import MagicMock
+from unittest.mock import AsyncMock, MagicMock
+
+import pytest
 
 from src.services.audit_service import AuditService
 
@@ -8,12 +10,15 @@ from src.services.audit_service import AuditService
 class TestAuditService:
     """Tests for AuditService audit logging."""
 
-    def test_audit_log_basic(self):
+    @pytest.mark.asyncio
+    async def test_audit_log_basic(self):
         """Test creating a basic audit log entry."""
-        mock_db = MagicMock()
+        mock_session = AsyncMock()
+        # session.add() is synchronous in SQLAlchemy, even for AsyncSession
+        mock_session.add = MagicMock()
 
-        audit = AuditService.log(
-            db=mock_db,
+        audit = await AuditService.log(
+            session=mock_session,
             entity_type="period",
             entity_id=1,
             action="create",
@@ -24,14 +29,16 @@ class TestAuditService:
         assert audit.action == "create"
         assert audit.actor_id is None
         assert audit.changes is None
-        mock_db.add.assert_called_once_with(audit)
+        mock_session.add.assert_called_once_with(audit)
 
-    def test_audit_log_with_actor(self):
+    @pytest.mark.asyncio
+    async def test_audit_log_with_actor(self):
         """Test creating audit log with actor_id."""
-        mock_db = MagicMock()
+        mock_session = AsyncMock()
+        mock_session.add = MagicMock()
 
-        audit = AuditService.log(
-            db=mock_db,
+        audit = await AuditService.log(
+            session=mock_session,
             entity_type="bill",
             entity_id=42,
             action="update",
@@ -43,15 +50,17 @@ class TestAuditService:
         assert audit.action == "update"
         assert audit.actor_id == 5
         assert audit.changes is None
-        mock_db.add.assert_called_once_with(audit)
+        mock_session.add.assert_called_once_with(audit)
 
-    def test_audit_log_with_changes(self):
+    @pytest.mark.asyncio
+    async def test_audit_log_with_changes(self):
         """Test creating audit log with changes dict."""
-        mock_db = MagicMock()
+        mock_session = AsyncMock()
+        mock_session.add = MagicMock()
         changes = {"amount": {"old": 100.0, "new": 150.0}}
 
-        audit = AuditService.log(
-            db=mock_db,
+        audit = await AuditService.log(
+            session=mock_session,
             entity_type="bill",
             entity_id=99,
             action="modify",
@@ -64,15 +73,17 @@ class TestAuditService:
         assert audit.action == "modify"
         assert audit.actor_id == 3
         assert audit.changes == changes
-        mock_db.add.assert_called_once_with(audit)
+        mock_session.add.assert_called_once_with(audit)
 
-    def test_audit_log_all_parameters(self):
+    @pytest.mark.asyncio
+    async def test_audit_log_all_parameters(self):
         """Test audit log with all parameters specified."""
-        mock_db = MagicMock()
+        mock_session = AsyncMock()
+        mock_session.add = MagicMock()
         changes = {"status": {"old": "pending", "new": "closed"}}
 
-        audit = AuditService.log(
-            db=mock_db,
+        audit = await AuditService.log(
+            session=mock_session,
             entity_type="period",
             entity_id=7,
             action="close",
@@ -85,7 +96,7 @@ class TestAuditService:
         assert audit.action == "close"
         assert audit.actor_id == 2
         assert audit.changes == changes
-        mock_db.add.assert_called_once()
+        mock_session.add.assert_called_once()
 
     def test_audit_service_exports(self):
         """Test that AuditService is properly exported."""

@@ -3,10 +3,11 @@
 import logging
 
 from sqlalchemy import select
-from sqlalchemy.orm import Session
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.models.access_request import AccessRequest, RequestStatus
 from src.models.user import User
+from src.services.audit_service import AuditService
 
 logger = logging.getLogger(__name__)
 
@@ -14,8 +15,8 @@ logger = logging.getLogger(__name__)
 class AdminService:
     """Service for admin approval/rejection operations."""
 
-    def __init__(self, db_session: Session):
-        self.db = db_session
+    def __init__(self, session: AsyncSession):
+        self.session = session
 
     async def approve_request(
         self,
@@ -40,7 +41,9 @@ class AdminService:
         """
         try:
             # Find the request
-            request = self.db.query(AccessRequest).filter(AccessRequest.id == request_id).first()
+            stmt = select(AccessRequest).where(AccessRequest.id == request_id)
+            result = await self.session.execute(stmt)
+            request = result.scalar_one_or_none()
 
             if not request:
                 logger.warning("Request %d not found for approval", request_id)
@@ -51,12 +54,13 @@ class AdminService:
 
             # If user ID provided, link request creator to that user
             if selected_user_id is not None and selected_user_id > 0:
-                selected_user = self.db.query(User).filter(User.id == selected_user_id).first()
+                selected_user = await self.session.get(User, selected_user_id)
 
                 if selected_user:
                     # Assign the request creator's Telegram credentials to the selected user
                     selected_user.telegram_id = request.user_telegram_id
                     selected_user.username = requester_username
+                    selected_user.is_active = True
                     logger.info(
                         "Assigned Telegram ID %s (username: %s) to user %s (ID: %d)",
                         request.user_telegram_id,
@@ -67,23 +71,11 @@ class AdminService:
                 else:
                     logger.warning("User ID %d not found for Telegram assignment", selected_user_id)
                     return None
-
-            # Update request status to approved
-            request.status = RequestStatus.APPROVED
-            request.admin_response = "approved"
-            request.admin_telegram_id = admin_user.telegram_id
-
-            # T042: Activate the user (set is_active=True)
-            # If selected_user_id was provided, we already updated that user above
-            if selected_user_id is not None and selected_user_id > 0:
-                # User was already updated above, just mark it as active
-                selected_user.is_active = True
-                logger.info("Activated selected user ID %d on approval", selected_user_id)
             else:
                 # No selected user, find or create user by telegram_id
-                user = self.db.execute(
-                    select(User).where(User.telegram_id == request.user_telegram_id)
-                ).scalar_one_or_none()
+                stmt = select(User).where(User.telegram_id == request.user_telegram_id)
+                result = await self.session.execute(stmt)
+                user = result.scalar_one_or_none()
 
                 if user:
                     user.is_active = True
@@ -94,10 +86,31 @@ class AdminService:
                     user = User(
                         telegram_id=request.user_telegram_id, name=placeholder_name, is_active=True
                     )
-                    self.db.add(user)
+                    self.session.add(user)
                     logger.info("Created new user %s on approval", request.user_telegram_id)
 
-            self.db.commit()
+            # Update request status to approved
+            request.status = RequestStatus.APPROVED
+            request.admin_response = "approved"
+            request.admin_telegram_id = admin_user.telegram_id
+
+            await self.session.flush()  # Ensure IDs are assigned
+
+            # Audit log
+            await AuditService.log(
+                session=self.session,
+                entity_type="access_request",
+                entity_id=request.id,
+                action="approve",
+                actor_id=admin_user.id,
+                changes={
+                    "status": "approved",
+                    "user_telegram_id": request.user_telegram_id,
+                    "selected_user_id": selected_user_id,
+                },
+            )
+
+            await self.session.commit()
             logger.info(
                 "Request %d approved by admin telegram_id=%d", request_id, admin_user.telegram_id
             )
@@ -105,7 +118,7 @@ class AdminService:
 
         except Exception as e:
             logger.error("Error approving request %d: %s", request_id, e, exc_info=True)
-            self.db.rollback()
+            await self.session.rollback()
             return None
 
     async def reject_request(
@@ -126,7 +139,9 @@ class AdminService:
         """
         try:
             # Find the request
-            request = self.db.query(AccessRequest).filter(AccessRequest.id == request_id).first()
+            stmt = select(AccessRequest).where(AccessRequest.id == request_id)
+            result = await self.session.execute(stmt)
+            request = result.scalar_one_or_none()
 
             if not request:
                 logger.warning("Request %d not found for rejection", request_id)
@@ -137,7 +152,22 @@ class AdminService:
             request.admin_telegram_id = admin_user.telegram_id
             request.admin_response = "rejected"
 
-            self.db.commit()
+            await self.session.flush()  # Ensure changes are persisted
+
+            # Audit log
+            await AuditService.log(
+                session=self.session,
+                entity_type="access_request",
+                entity_id=request.id,
+                action="reject",
+                actor_id=admin_user.id,
+                changes={
+                    "status": "rejected",
+                    "user_telegram_id": request.user_telegram_id,
+                },
+            )
+
+            await self.session.commit()
             logger.info(
                 "Request %d rejected by admin telegram_id=%d", request_id, admin_user.telegram_id
             )
@@ -145,7 +175,7 @@ class AdminService:
 
         except Exception as e:
             logger.error("Error rejecting request %d: %s", request_id, e, exc_info=True)
-            self.db.rollback()
+            await self.session.rollback()
             return None
 
     async def get_admin_config(self) -> dict | None:

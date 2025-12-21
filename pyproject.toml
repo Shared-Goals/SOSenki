@@ -55,7 +55,7 @@ markers = [
     "unit: Unit tests for services and models",
 ]
 filterwarnings = [
-    # "ignore:coroutine 'AsyncMockMixin._execute_mock_call' was never awaited:RuntimeWarning",
+    "ignore:coroutine 'AsyncMockMixin._execute_mock_call' was never awaited:RuntimeWarning",
     # "ignore:websockets.legacy is deprecated:DeprecationWarning",
     # "ignore:WebSocketServerProtocol is deprecated:DeprecationWarning",
     # "ignore:If 'per_message=False', 'CallbackQueryHandler' will not be tracked:PTBUserWarning",

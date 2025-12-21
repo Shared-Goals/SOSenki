@@ -16,42 +16,38 @@ from telegram import Update
 from src.api import webhook as webhook_module
 from src.models.access_request import AccessRequest, RequestStatus
 from src.models.user import User
-from src.services import SessionLocal
+from src.services import AsyncSessionLocal
 
 
 class TestAccessRequestFlow:
     """Integration tests for the complete client request submission flow."""
 
     @pytest.fixture(autouse=True)
-    def cleanup_db(self):
+    async def cleanup_db(self):
         """Clean up database before and after each test."""
-        db = SessionLocal()
-        try:
-            # Delete test users created by this test suite
-            # (Users created with placeholder names starting with "User_")
-            db.execute(delete(User).where(User.name.like("User_%")))
-            # Delete all requests
-            db.execute(delete(AccessRequest))
-            db.commit()
-        except Exception:
-            db.rollback()
-        finally:
-            db.close()
+        async with AsyncSessionLocal() as db:
+            try:
+                # Delete test users created by this test suite
+                # (Users created with placeholder names starting with "User_")
+                await db.execute(delete(User).where(User.name.like("User_%")))
+                # Delete all requests
+                await db.execute(delete(AccessRequest))
+                await db.commit()
+            except Exception:
+                await db.rollback()
 
         yield
 
         # Cleanup after test
-        db = SessionLocal()
-        try:
-            # Delete test users created by this test suite
-            db.execute(delete(User).where(User.name.like("User_%")))
-            # Delete all requests
-            db.execute(delete(AccessRequest))
-            db.commit()
-        except Exception:
-            db.rollback()
-        finally:
-            db.close()
+        async with AsyncSessionLocal() as db:
+            try:
+                # Delete test users created by this test suite
+                await db.execute(delete(User).where(User.name.like("User_%")))
+                # Delete all requests
+                await db.execute(delete(AccessRequest))
+                await db.commit()
+            except Exception:
+                await db.rollback()
 
     @pytest.fixture
     def mock_bot(self):
@@ -118,7 +114,8 @@ class TestAccessRequestFlow:
             # Cleanup
             webhook_module._bot_app = None
 
-    def test_full_request_flow(self, client, mock_bot):
+    @pytest.mark.asyncio
+    async def test_full_request_flow(self, client, mock_bot):
         """Test the full client request submission flow.
 
         Verifies:
@@ -153,11 +150,13 @@ class TestAccessRequestFlow:
         assert response_data["ok"] is True
 
         # Step 2: Verify request is stored in database
-        db = SessionLocal()
-        try:
-            stored_requests = (
-                db.query(AccessRequest).filter(AccessRequest.user_telegram_id == client_id).all()
+        async with AsyncSessionLocal() as db:
+            from sqlalchemy import select
+
+            result = await db.execute(
+                select(AccessRequest).where(AccessRequest.user_telegram_id == client_id)
             )
+            stored_requests = result.scalars().all()
 
             assert len(stored_requests) == 1, "Request should be stored in database"
             stored_request = stored_requests[0]
@@ -170,9 +169,6 @@ class TestAccessRequestFlow:
             assert stored_request.admin_telegram_id is None
             assert stored_request.admin_response is None
             assert stored_request.updated_at is not None
-
-        finally:
-            db.close()
 
         # Step 3: Verify client received confirmation message
         # The handler should call bot.send_message for the client confirmation
@@ -187,7 +183,8 @@ class TestAccessRequestFlow:
         # Admin notification might be sent (depending on admin ID config)
         # At minimum, we should have confirmation sent
 
-    def test_duplicate_request_rejection_in_flow(self, client, mock_bot):
+    @pytest.mark.asyncio
+    async def test_duplicate_request_rejection_in_flow(self, client, mock_bot):
         """Test that duplicate requests are rejected in the flow.
 
         Verifies:
@@ -230,21 +227,19 @@ class TestAccessRequestFlow:
         assert response2.status_code == 200
 
         # Step 3: Verify only one request in database
-        db = SessionLocal()
-        try:
-            stored_requests = (
-                db.query(AccessRequest)
-                .filter(AccessRequest.user_telegram_id == str(client_id))
-                .all()
+        from sqlalchemy import select
+
+        async with AsyncSessionLocal() as db:
+            result = await db.execute(
+                select(AccessRequest).where(AccessRequest.user_telegram_id == client_id)
             )
+            stored_requests = result.scalars().all()
 
             assert len(stored_requests) == 1, "Only one request should be stored"
             assert stored_requests[0].request_message == request_message_1
 
-        finally:
-            db.close()
-
-    def test_timing_sla_for_confirmation(self, client, mock_bot):
+    @pytest.mark.asyncio
+    async def test_timing_sla_for_confirmation(self, client, mock_bot):
         """Test that client confirmation is sent within SLA (2 seconds).
 
         Verifies:
@@ -277,21 +272,20 @@ class TestAccessRequestFlow:
         assert response.status_code == 200
 
         # Verify request was stored
-        db = SessionLocal()
-        try:
-            stored_request = (
-                db.query(AccessRequest)
-                .filter(AccessRequest.user_telegram_id == str(client_id))
-                .first()
+        from sqlalchemy import select
+
+        async with AsyncSessionLocal() as db:
+            result = await db.execute(
+                select(AccessRequest).where(AccessRequest.user_telegram_id == client_id)
             )
+            stored_request = result.scalar_one_or_none()
             assert stored_request is not None
-        finally:
-            db.close()
 
         # Log timing for information (SLA is 2 seconds)
         print(f"Request processing time: {elapsed_time:.3f} seconds (SLA: 2s)")
 
-    def test_request_with_special_characters(self, client, mock_bot):
+    @pytest.mark.asyncio
+    async def test_request_with_special_characters(self, client, mock_bot):
         """Test that requests with special characters are handled correctly."""
         client_id = 987654321
         client_name = "TestUser2"
@@ -313,21 +307,19 @@ class TestAccessRequestFlow:
         assert response.status_code == 200
 
         # Verify request is stored correctly with special characters preserved
-        db = SessionLocal()
-        try:
-            stored_request = (
-                db.query(AccessRequest)
-                .filter(AccessRequest.user_telegram_id == str(client_id))
-                .first()
+        from sqlalchemy import select
+
+        async with AsyncSessionLocal() as db:
+            result = await db.execute(
+                select(AccessRequest).where(AccessRequest.user_telegram_id == client_id)
             )
+            stored_request = result.scalar_one_or_none()
 
             assert stored_request is not None
             assert stored_request.request_message == request_message
 
-        finally:
-            db.close()
-
-    def test_request_with_multiline_message(self, client, mock_bot):
+    @pytest.mark.asyncio
+    async def test_request_with_multiline_message(self, client, mock_bot):
         """Test that multi-line request messages are handled (only first line after /request)."""
         client_id = 555666777
         client_name = "TestUser3"
@@ -348,21 +340,19 @@ class TestAccessRequestFlow:
         response = client.post("/webhook/telegram", json=update_json)
         assert response.status_code == 200
 
-        db = SessionLocal()
-        try:
-            stored_request = (
-                db.query(AccessRequest)
-                .filter(AccessRequest.user_telegram_id == str(client_id))
-                .first()
+        from sqlalchemy import select
+
+        async with AsyncSessionLocal() as db:
+            result = await db.execute(
+                select(AccessRequest).where(AccessRequest.user_telegram_id == client_id)
             )
+            stored_request = result.scalar_one_or_none()
 
             assert stored_request is not None
             assert request_message in stored_request.request_message
 
-        finally:
-            db.close()
-
-    def test_request_without_message(self, client, mock_bot):
+    @pytest.mark.asyncio
+    async def test_request_without_message(self, client, mock_bot):
         """Test that /request command works without a message.
 
         Verifies:
@@ -391,16 +381,13 @@ class TestAccessRequestFlow:
         assert response_data["ok"] is True
 
         # Verify request is stored in database with empty message
-        db = SessionLocal()
-        try:
-            stored_request = (
-                db.query(AccessRequest)
-                .filter(AccessRequest.user_telegram_id == str(client_id))
-                .first()
+        from sqlalchemy import select
+
+        async with AsyncSessionLocal() as db:
+            result = await db.execute(
+                select(AccessRequest).where(AccessRequest.user_telegram_id == client_id)
             )
+            stored_request = result.scalar_one_or_none()
 
             assert stored_request is not None
             assert stored_request.request_message == ""
-
-        finally:
-            db.close()

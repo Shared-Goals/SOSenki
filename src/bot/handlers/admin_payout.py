@@ -8,7 +8,6 @@ from telegram import (
     InlineKeyboardMarkup,
     KeyboardButton,
     ReplyKeyboardMarkup,
-    ReplyKeyboardRemove,
     Update,
 )
 from telegram.ext import ContextTypes
@@ -16,7 +15,6 @@ from telegram.ext import ContextTypes
 from src.bot.auth import verify_admin_authorization
 from src.models.account import AccountType
 from src.services import AsyncSessionLocal
-from src.services.audit_service import AuditService
 from src.services.locale_service import format_currency
 from src.services.localizer import t
 from src.services.transaction_service import TransactionService
@@ -50,6 +48,8 @@ _PAYOUT_KEYS = [
 
 def _clear_payout_context(context: ContextTypes.DEFAULT_TYPE) -> None:
     """Clear all payout-related context data."""
+    if context.user_data is None:
+        return
     for key in _PAYOUT_KEYS:
         context.user_data.pop(key, None)
 
@@ -140,7 +140,7 @@ async def handle_payout_command(update: Update, context: ContextTypes.DEFAULT_TY
                 return States.END
 
             # Build inline buttons for account selection
-            buttons = []
+            buttons: list[list[InlineKeyboardButton]] = []
             for account in accounts:
                 buttons.append(
                     [
@@ -164,21 +164,23 @@ async def handle_payout_command(update: Update, context: ContextTypes.DEFAULT_TY
             )
 
             # Store authenticated admin user context
-            context.user_data["authorized_admin"] = admin_user
-            context.user_data["payout_admin_id"] = telegram_id
+            if context.user_data is not None:
+                context.user_data["authorized_admin"] = admin_user
+                context.user_data["payout_admin_id"] = telegram_id
 
             return States.SELECT_FROM
 
     except Exception as e:
         logger.error("Error starting payout workflow: %s", e, exc_info=True)
-        try:
-            await update.message.reply_text(t("err_processing"))
-        except Exception:
-            pass
+        if update.message:
+            try:
+                await update.message.reply_text(t("err_processing"))
+            except Exception:
+                pass
         return States.END
 
 
-async def handle_from_selection(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+async def handle_from_selection(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:  # noqa: C901
     """Handle source account selection and show destination accounts.
 
     User selects source account, then show destination accounts
@@ -215,7 +217,8 @@ async def handle_from_selection(update: Update, context: ContextTypes.DEFAULT_TY
                 return States.END
 
             # Store selected from account
-            context.user_data["payout_from_account"] = from_account
+            if context.user_data is not None:
+                context.user_data["payout_from_account"] = from_account
 
             # Get destination accounts ordered by frequency with this source
             to_accounts = await transaction_service.get_accounts_by_to_frequency(from_account_id)
@@ -227,7 +230,7 @@ async def handle_from_selection(update: Update, context: ContextTypes.DEFAULT_TY
                 return States.END
 
             # Build inline buttons for destination account selection
-            buttons = []
+            buttons: list[list[InlineKeyboardButton]] = []
             for account in to_accounts:
                 if account.id != from_account_id:  # Exclude self-transfers
                     buttons.append(
@@ -256,14 +259,17 @@ async def handle_from_selection(update: Update, context: ContextTypes.DEFAULT_TY
 
     except Exception as e:
         logger.error("Error handling from selection: %s", e, exc_info=True)
-        try:
-            await cq.edit_message_text(t("err_processing"), reply_markup=InlineKeyboardMarkup([]))
-        except Exception:
-            pass
+        if update.callback_query:
+            try:
+                await update.callback_query.edit_message_text(
+                    t("err_processing"), reply_markup=InlineKeyboardMarkup([])
+                )
+            except Exception:
+                pass
         return States.END
 
 
-async def handle_to_selection(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+async def handle_to_selection(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:  # noqa: C901
     """Handle destination account selection and calculate suggested amount.
 
     User selects destination account, calculate suggested amount,
@@ -300,6 +306,13 @@ async def handle_to_selection(update: Update, context: ContextTypes.DEFAULT_TYPE
                 return States.END
 
             # Get from account from context
+            if context.user_data is None:
+                logger.warning("Context user_data is None")
+                await cq.edit_message_text(
+                    t("err_processing"), reply_markup=InlineKeyboardMarkup([])
+                )
+                return States.END
+
             from_account = context.user_data.get("payout_from_account")
             if not from_account:
                 logger.warning("From account not found in context")
@@ -344,24 +357,30 @@ async def handle_to_selection(update: Update, context: ContextTypes.DEFAULT_TYPE
                     reply_markup=InlineKeyboardMarkup([]),
                 )
                 # Send keyboard in separate message to avoid keyboard state pollution
-                await cq.message.reply_text(
-                    t("prompt_enter_or_use_suggested"),
-                    reply_markup=keyboard,
-                )
+                from telegram import Message
+
+                if isinstance(cq.message, Message):
+                    await cq.message.reply_text(
+                        t("prompt_enter_or_use_suggested"),
+                        reply_markup=keyboard,
+                    )
             else:
                 await cq.edit_message_text(
                     debt_info,
-                    reply_markup=ReplyKeyboardRemove(),
+                    reply_markup=InlineKeyboardMarkup([]),
                 )
 
             return States.ENTER_AMOUNT
 
     except Exception as e:
         logger.error("Error handling to selection: %s", e, exc_info=True)
-        try:
-            await cq.edit_message_text(t("err_processing"), reply_markup=InlineKeyboardMarkup([]))
-        except Exception:
-            pass
+        if update.callback_query:
+            try:
+                await update.callback_query.edit_message_text(
+                    t("err_processing"), reply_markup=InlineKeyboardMarkup([])
+                )
+            except Exception:
+                pass
         return States.END
 
 
@@ -387,6 +406,11 @@ async def handle_amount_input(update: Update, context: ContextTypes.DEFAULT_TYPE
             return States.ENTER_AMOUNT
 
         # Get accounts from context
+        if context.user_data is None:
+            logger.warning("Context user_data is None")
+            await update.message.reply_text(t("err_processing"))
+            return States.END
+
         from_account = context.user_data.get("payout_from_account")
         to_account = context.user_data.get("payout_to_account")
 
@@ -394,6 +418,9 @@ async def handle_amount_input(update: Update, context: ContextTypes.DEFAULT_TYPE
             logger.warning("Accounts not found in context")
             await update.message.reply_text(t("err_processing"))
             return States.END
+
+        # Type narrowing: amount is guaranteed to be Decimal here
+        assert amount is not None
 
         # Store amount
         context.user_data["payout_amount"] = amount
@@ -418,10 +445,11 @@ async def handle_amount_input(update: Update, context: ContextTypes.DEFAULT_TYPE
 
     except Exception as e:
         logger.error("Error handling amount input: %s", e, exc_info=True)
-        try:
-            await update.message.reply_text(t("err_processing"))
-        except Exception:
-            pass
+        if update.message:
+            try:
+                await update.message.reply_text(t("err_processing"))
+            except Exception:
+                pass
         return States.END
 
 
@@ -436,6 +464,12 @@ async def handle_description_input(update: Update, context: ContextTypes.DEFAULT
             return States.END
 
         description = update.message.text.strip()
+
+        # Check context data is available
+        if context.user_data is None:
+            logger.warning("Context user_data is None")
+            await update.message.reply_text(t("err_processing"))
+            return States.END
 
         # Store description
         context.user_data["payout_description"] = description
@@ -480,10 +514,11 @@ async def handle_description_input(update: Update, context: ContextTypes.DEFAULT
 
     except Exception as e:
         logger.error("Error handling description input: %s", e, exc_info=True)
-        try:
-            await update.message.reply_text(t("err_processing"))
-        except Exception:
-            pass
+        if update.message:
+            try:
+                await update.message.reply_text(t("err_processing"))
+            except Exception:
+                pass
         return States.END
 
 
@@ -511,6 +546,11 @@ async def handle_confirm(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             return States.END
 
         # Get data from context
+        if context.user_data is None:
+            logger.warning("Context user_data is None")
+            await cq.edit_message_text(t("err_processing"), reply_markup=InlineKeyboardMarkup([]))
+            return States.END
+
         from_account = context.user_data.get("payout_from_account")
         to_account = context.user_data.get("payout_to_account")
         amount = context.user_data.get("payout_amount")
@@ -522,33 +562,24 @@ async def handle_confirm(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             await cq.edit_message_text(t("err_processing"), reply_markup=InlineKeyboardMarkup([]))
             return States.END
 
+        # Type narrowing: all values are guaranteed non-None after the check above
+        assert from_account is not None
+        assert to_account is not None
+        assert amount is not None
+        assert description is not None
+        assert admin_user is not None
+
         async with AsyncSessionLocal() as session:
             try:
                 transaction_service = TransactionService(session)
 
-                # Create transaction
+                # Create transaction with audit logging
                 transaction = await transaction_service.create_transaction(
                     from_account_id=from_account.id,
                     to_account_id=to_account.id,
                     amount=amount,
                     description=description,
-                )
-
-                # Add audit log
-                AuditService.log(
-                    db=session,
-                    entity_type="transaction",
-                    entity_id=transaction.id,
-                    action="created",
                     actor_id=admin_user.id,
-                    changes={
-                        "from_account_id": from_account.id,
-                        "from_account_name": from_account.name,
-                        "to_account_id": to_account.id,
-                        "to_account_name": to_account.name,
-                        "amount": float(amount),
-                        "description": description,
-                    },
                 )
 
                 # Commit transaction
@@ -570,7 +601,7 @@ async def handle_confirm(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
                 # Show final result directly
                 await cq.edit_message_text(
                     success_text,
-                    reply_markup=ReplyKeyboardRemove(),
+                    reply_markup=InlineKeyboardMarkup([]),
                     parse_mode="HTML",
                 )
 
@@ -587,10 +618,13 @@ async def handle_confirm(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
     except Exception as e:
         logger.error("Error handling confirm: %s", e, exc_info=True)
-        try:
-            await cq.edit_message_text(t("err_processing"), reply_markup=InlineKeyboardMarkup([]))
-        except Exception:
-            pass
+        if update.callback_query:
+            try:
+                await update.callback_query.edit_message_text(
+                    t("err_processing"), reply_markup=InlineKeyboardMarkup([])
+                )
+            except Exception:
+                pass
         _clear_payout_context(context)
         return States.END
 

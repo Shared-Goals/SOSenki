@@ -16,72 +16,66 @@ from telegram import Update
 from src.api import webhook as webhook_module
 from src.models.access_request import AccessRequest, RequestStatus
 from src.models.user import User
-from src.services import SessionLocal
+from src.services import AsyncSessionLocal
 
 
 class TestRejectionFlow:
     """Integration tests for the complete admin rejection flow."""
 
     @pytest.fixture(autouse=True)
-    def cleanup_db(self):
+    async def cleanup_db(self):
         """Clean up and setup database before and after each test."""
-        db = SessionLocal()
-        try:
-            # Delete test users created by this test suite
-            # (Users created with placeholder names starting with "User_")
-            db.execute(delete(User).where(User.name.like("User_%")))
-            # Delete all requests
-            db.execute(delete(AccessRequest))
-            db.commit()
-        except Exception:
-            db.rollback()
-        finally:
-            db.close()
+        async with AsyncSessionLocal() as db:
+            try:
+                # Delete test users created by this test suite
+                # (Users created with placeholder names starting with "User_")
+                await db.execute(delete(User).where(User.name.like("User_%")))
+                # Delete all requests
+                await db.execute(delete(AccessRequest))
+                await db.commit()
+            except Exception:
+                await db.rollback()
 
         # Setup: Create admin users for tests
-        db = SessionLocal()
-        try:
-            admin1 = User(
-                telegram_id=999888777,
-                name="Test Admin",
-                is_active=True,
-                is_administrator=True,
-            )
-            admin2 = User(
-                telegram_id=888777666,
-                name="Test Admin 2",
-                is_active=True,
-                is_administrator=True,
-            )
-            admin3 = User(
-                telegram_id=777666555,
-                name="Test Admin 3",
-                is_active=True,
-                is_administrator=True,
-            )
-            db.add(admin1)
-            db.add(admin2)
-            db.add(admin3)
-            db.commit()
-        except Exception:
-            db.rollback()
-        finally:
-            db.close()
+        async with AsyncSessionLocal() as db:
+            try:
+                admin1 = User(
+                    telegram_id=999888777,
+                    name="Test Admin",
+                    is_active=True,
+                    is_administrator=True,
+                )
+                admin2 = User(
+                    telegram_id=888777666,
+                    name="Test Admin 2",
+                    is_active=True,
+                    is_administrator=True,
+                )
+                admin3 = User(
+                    telegram_id=777666555,
+                    name="Test Admin 3",
+                    is_active=True,
+                    is_administrator=True,
+                )
+                db.add(admin1)
+                db.add(admin2)
+                db.add(admin3)
+                await db.commit()
+            except Exception:
+                await db.rollback()
 
         yield
 
         # Cleanup after test
-        db = SessionLocal()
-        try:
-            # Delete test users created by this test suite
-            db.execute(delete(User).where(User.name.like("User_%")))
-            # Delete all requests
-            db.execute(delete(AccessRequest))
-            db.commit()
-        except Exception:
-            db.rollback()
-        finally:
-            db.close()
+        async with AsyncSessionLocal() as db:
+            try:
+                # Delete test users created by this test suite
+                await db.execute(delete(User).where(User.name.like("User_%")))
+                # Delete all requests
+                await db.execute(delete(AccessRequest))
+                await db.commit()
+            except Exception:
+                await db.rollback()
 
     @pytest.fixture
     def mock_bot(self):
@@ -177,7 +171,8 @@ class TestRejectionFlow:
 
             webhook_module._bot_app = None
 
-    def test_full_rejection_flow(self, client, mock_bot):
+    @pytest.mark.asyncio
+    async def test_full_rejection_flow(self, client, mock_bot):
         """Test complete rejection workflow: request → rejection → rejection message.
 
         Verifies:
@@ -211,19 +206,17 @@ class TestRejectionFlow:
         assert response.status_code == 200
 
         # Verify request stored in database
-        db = SessionLocal()
-        try:
-            stored_request = (
-                db.query(AccessRequest)
-                .filter(AccessRequest.user_telegram_id == str(client_id))
-                .first()
+        from sqlalchemy import select
+
+        async with AsyncSessionLocal() as db:
+            result = await db.execute(
+                select(AccessRequest).where(AccessRequest.user_telegram_id == client_id)
             )
+            stored_request = result.scalar_one_or_none()
             assert stored_request is not None
             assert stored_request.status == RequestStatus.PENDING
             assert stored_request.request_message == request_message
             request_id = stored_request.id
-        finally:
-            db.close()
 
         # Reset mock to track rejection call separately
         mock_bot.reset_mock()
@@ -252,16 +245,14 @@ class TestRejectionFlow:
         elapsed_time = (end_time - start_time).total_seconds()
 
         # Step 3: Verify request status updated to REJECTED
-        db = SessionLocal()
-        try:
-            updated_request = db.query(AccessRequest).filter(AccessRequest.id == request_id).first()
+        async with AsyncSessionLocal() as db:
+            result = await db.execute(select(AccessRequest).where(AccessRequest.id == request_id))
+            updated_request = result.scalar_one_or_none()
             assert updated_request is not None
             assert updated_request.status == RequestStatus.REJECTED
             assert updated_request.admin_telegram_id == admin_id
             assert updated_request.admin_response == "rejected"
             assert updated_request.updated_at is not None
-        finally:
-            db.close()
 
         # Step 4: Verify rejection message sent to client
         # Bot.send_message should have been called with client_id
@@ -289,7 +280,8 @@ class TestRejectionFlow:
         print(f"Rejection flow time: {elapsed_time:.3f} seconds (SLA: 5s)")
         assert elapsed_time < 5.0, f"Rejection flow exceeded SLA: {elapsed_time}s > 5s"
 
-    def test_rejection_with_missing_request(self, client, mock_bot):
+    @pytest.mark.asyncio
+    async def test_rejection_with_missing_request(self, client, mock_bot):
         """Test rejection when request doesn't exist.
 
         Verifies:
@@ -323,14 +315,15 @@ class TestRejectionFlow:
         assert response.status_code == 200
 
         # Verify no requests exist in database
-        db = SessionLocal()
-        try:
-            all_requests = db.query(AccessRequest).all()
-            assert len(all_requests) == 0
-        finally:
-            db.close()
+        from sqlalchemy import select
 
-    def test_rejection_timing_sla(self, client, mock_bot):
+        async with AsyncSessionLocal() as db:
+            result = await db.execute(select(AccessRequest))
+            all_requests = result.scalars().all()
+            assert len(all_requests) == 0
+
+    @pytest.mark.asyncio
+    async def test_rejection_timing_sla(self, client, mock_bot):
         """Test that rejection response meets timing SLA (< 5 seconds).
 
         Verifies:
@@ -357,16 +350,14 @@ class TestRejectionFlow:
         assert response.status_code == 200
 
         # Get request ID
-        db = SessionLocal()
-        try:
-            stored_request = (
-                db.query(AccessRequest)
-                .filter(AccessRequest.user_telegram_id == str(client_id))
-                .first()
+        from sqlalchemy import select
+
+        async with AsyncSessionLocal() as db:
+            result = await db.execute(
+                select(AccessRequest).where(AccessRequest.user_telegram_id == client_id)
             )
+            stored_request = result.scalar_one_or_none()
             request_id = stored_request.id
-        finally:
-            db.close()
 
         # Step 2: Measure rejection response time
         start_time = datetime.now(timezone.utc)
@@ -396,7 +387,8 @@ class TestRejectionFlow:
         print(f"Rejection response time: {elapsed_time:.3f} seconds (SLA: 5s)")
         assert elapsed_time < 5.0
 
-    def test_rejection_idempotency(self, client, mock_bot):
+    @pytest.mark.asyncio
+    async def test_rejection_idempotency(self, client, mock_bot):
         """Test that rejecting the same request twice doesn't cause issues.
 
         Verifies:
@@ -409,19 +401,18 @@ class TestRejectionFlow:
         request_message = "Idempotency test"
 
         # Create request
-        db = SessionLocal()
-        try:
+        from sqlalchemy import select
+
+        async with AsyncSessionLocal() as db:
             request = AccessRequest(
                 user_telegram_id=str(client_id),
                 request_message=request_message,
                 status=RequestStatus.PENDING,
             )
             db.add(request)
-            db.commit()
-            db.refresh(request)
+            await db.commit()
+            await db.refresh(request)
             request_id = request.id
-        finally:
-            db.close()
 
         # First rejection via callback
         admin_update_1 = {
@@ -445,12 +436,10 @@ class TestRejectionFlow:
         assert response1.status_code == 200
 
         # Verify rejected
-        db = SessionLocal()
-        try:
-            req = db.query(AccessRequest).filter(AccessRequest.id == request_id).first()
+        async with AsyncSessionLocal() as db:
+            result = await db.execute(select(AccessRequest).where(AccessRequest.id == request_id))
+            req = result.scalar_one_or_none()
             assert req.status == RequestStatus.REJECTED
-        finally:
-            db.close()
 
         # Second rejection attempt via callback (idempotent)
         mock_bot.reset_mock()
@@ -475,9 +464,7 @@ class TestRejectionFlow:
         assert response2.status_code == 200
 
         # Verify still rejected
-        db = SessionLocal()
-        try:
-            req = db.query(AccessRequest).filter(AccessRequest.id == request_id).first()
+        async with AsyncSessionLocal() as db:
+            result = await db.execute(select(AccessRequest).where(AccessRequest.id == request_id))
+            req = result.scalar_one_or_none()
             assert req.status == RequestStatus.REJECTED
-        finally:
-            db.close()

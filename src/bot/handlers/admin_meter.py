@@ -11,6 +11,7 @@ from telegram import (
     ReplyKeyboardMarkup,
     Update,
 )
+from telegram.error import BadRequest
 from telegram.ext import ContextTypes
 
 from src.bot.auth import verify_admin_authorization
@@ -167,11 +168,22 @@ async def _show_property_selection(  # noqa: C901
 
             # Check if we have a callback query (from button click) or message (from command)
             if update.callback_query is not None:
-                await update.callback_query.edit_message_text(
-                    message_text,
-                    reply_markup=reply_markup,
-                    parse_mode="HTML",
-                )
+                try:
+                    await update.callback_query.edit_message_text(
+                        message_text,
+                        reply_markup=reply_markup,
+                        parse_mode="HTML",
+                    )
+                except BadRequest as e:
+                    # If message is not modified (pressing Cancel twice on same step)
+                    # Replace with cancellation message and end conversation
+                    if "message is not modified" in str(e).lower():
+                        await update.callback_query.edit_message_text(
+                            t("msg_operation_cancelled"),
+                            parse_mode="HTML",
+                        )
+                        return States.END
+                    raise
             elif update.message is not None:
                 await update.message.reply_text(
                     message_text,
@@ -360,7 +372,7 @@ async def handle_property_selection(update: Update, context: ContextTypes.DEFAUL
 
             # Always show "New reading" action
             keyboard.append(
-                [InlineKeyboardButton(text=t("action_meter_new"), callback_data="meter_action_new")]
+                [InlineKeyboardButton(text=t("btn_meter_new"), callback_data="meter_action_new")]
             )
 
             # Show edit/delete only if there's a reading
@@ -368,14 +380,14 @@ async def handle_property_selection(update: Update, context: ContextTypes.DEFAUL
                 keyboard.append(
                     [
                         InlineKeyboardButton(
-                            text=t("action_meter_edit"), callback_data="meter_action_edit"
+                            text=t("btn_meter_edit"), callback_data="meter_action_edit"
                         )
                     ]
                 )
                 keyboard.append(
                     [
                         InlineKeyboardButton(
-                            text=t("action_meter_delete"), callback_data="meter_action_delete"
+                            text=t("btn_meter_delete"), callback_data="meter_action_delete"
                         )
                     ]
                 )
@@ -489,6 +501,7 @@ async def handle_action_selection(update: Update, context: ContextTypes.DEFAULT_
                 context.user_data["meter_reading_id"] = latest_property_reading.id
                 # Get the reading that came before this one (for validation)
                 from sqlalchemy import select
+
                 stmt = (
                     select(ElectricityReading)
                     .where(
@@ -719,12 +732,12 @@ async def handle_value_input(update: Update, context: ContextTypes.DEFAULT_TYPE)
         # For edit, we need the current reading being edited (not the validation baseline)
         reading_id = context.user_data.get("meter_reading_id")
         current_reading = None
-        
+
         if reading_id:
             async with AsyncSessionLocal() as session:
                 electricity_reading_service = ElectricityReadingService(session)
                 current_reading = await electricity_reading_service.get_reading_by_id(reading_id)
-        
+
         if current_reading:
             message_text = t("prompt_confirm_meter_edit").format(
                 property_name=property_name,

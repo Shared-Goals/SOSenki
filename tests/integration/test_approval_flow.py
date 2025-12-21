@@ -16,68 +16,62 @@ from telegram import Update
 from src.api import webhook as webhook_module
 from src.models.access_request import AccessRequest, RequestStatus
 from src.models.user import User
-from src.services import SessionLocal
+from src.services import AsyncSessionLocal
 
 
 class TestApprovalFlow:
     """Integration tests for the complete admin approval flow."""
 
     @pytest.fixture(autouse=True)
-    def cleanup_db(self):
+    async def cleanup_db(self):
         """Clean up and setup database before and after each test."""
-        db = SessionLocal()
-        try:
-            db.execute(delete(AccessRequest))
-            db.execute(delete(User))
-            db.commit()
-        except Exception:
-            # Table may not exist if migrations haven't run
-            db.rollback()
-        finally:
-            db.close()
+        async with AsyncSessionLocal() as db:
+            try:
+                await db.execute(delete(AccessRequest))
+                await db.execute(delete(User))
+                await db.commit()
+            except Exception:
+                # Table may not exist if migrations haven't run
+                await db.rollback()
 
         # Setup: Create admin users for tests
-        db = SessionLocal()
-        try:
-            admin1 = User(
-                telegram_id=999888777,
-                name="Test Admin",
-                is_active=True,
-                is_administrator=True,
-            )
-            admin2 = User(
-                telegram_id=888777666,
-                name="Test Admin 2",
-                is_active=True,
-                is_administrator=True,
-            )
-            admin3 = User(
-                telegram_id=777666555,
-                name="Test Admin 3",
-                is_active=True,
-                is_administrator=True,
-            )
-            db.add(admin1)
-            db.add(admin2)
-            db.add(admin3)
-            db.commit()
-        except Exception:
-            db.rollback()
-        finally:
-            db.close()
+        async with AsyncSessionLocal() as db:
+            try:
+                admin1 = User(
+                    telegram_id=999888777,
+                    name="Test Admin",
+                    is_active=True,
+                    is_administrator=True,
+                )
+                admin2 = User(
+                    telegram_id=888777666,
+                    name="Test Admin 2",
+                    is_active=True,
+                    is_administrator=True,
+                )
+                admin3 = User(
+                    telegram_id=777666555,
+                    name="Test Admin 3",
+                    is_active=True,
+                    is_administrator=True,
+                )
+                db.add(admin1)
+                db.add(admin2)
+                db.add(admin3)
+                await db.commit()
+            except Exception:
+                await db.rollback()
 
         yield
 
         # Cleanup after test
-        db = SessionLocal()
-        try:
-            db.execute(delete(AccessRequest))
-            db.execute(delete(User))
-            db.commit()
-        except Exception:
-            db.rollback()
-        finally:
-            db.close()
+        async with AsyncSessionLocal() as db:
+            try:
+                await db.execute(delete(AccessRequest))
+                await db.execute(delete(User))
+                await db.commit()
+            except Exception:
+                await db.rollback()
 
     @pytest.fixture
     def mock_bot(self):
@@ -173,7 +167,8 @@ class TestApprovalFlow:
 
             webhook_module._bot_app = None
 
-    def test_full_approval_flow(self, client, mock_bot):
+    @pytest.mark.asyncio
+    async def test_full_approval_flow(self, client, mock_bot):
         """Test complete approval workflow: request → approval → welcome message.
 
         Verifies:
@@ -207,19 +202,17 @@ class TestApprovalFlow:
         assert response.status_code == 200
 
         # Verify request stored in database
-        db = SessionLocal()
-        try:
-            stored_request = (
-                db.query(AccessRequest)
-                .filter(AccessRequest.user_telegram_id == str(client_id))
-                .first()
+        from sqlalchemy import select
+
+        async with AsyncSessionLocal() as db:
+            result = await db.execute(
+                select(AccessRequest).where(AccessRequest.user_telegram_id == client_id)
             )
+            stored_request = result.scalar_one_or_none()
             assert stored_request is not None
             assert stored_request.status == RequestStatus.PENDING
             assert stored_request.request_message == request_message
             request_id = stored_request.id
-        finally:
-            db.close()
 
         # Reset mock to track approval call separately
         mock_bot.reset_mock()
@@ -248,16 +241,14 @@ class TestApprovalFlow:
         elapsed_time = (end_time - start_time).total_seconds()
 
         # Step 3: Verify request status updated to APPROVED
-        db = SessionLocal()
-        try:
-            updated_request = db.query(AccessRequest).filter(AccessRequest.id == request_id).first()
+        async with AsyncSessionLocal() as db:
+            result = await db.execute(select(AccessRequest).where(AccessRequest.id == request_id))
+            updated_request = result.scalar_one_or_none()
             assert updated_request is not None
             assert updated_request.status == RequestStatus.APPROVED
             assert updated_request.admin_telegram_id == admin_id
             assert updated_request.admin_response == "approved"
             assert updated_request.updated_at is not None
-        finally:
-            db.close()
 
         # Step 4: Verify welcome message sent to client
         # Bot.send_message should have been called with client_id
@@ -285,7 +276,8 @@ class TestApprovalFlow:
         print(f"Approval flow time: {elapsed_time:.3f} seconds (SLA: 5s)")
         assert elapsed_time < 5.0, f"Approval flow exceeded SLA: {elapsed_time}s > 5s"
 
-    def test_approval_with_missing_request(self, client, mock_bot):
+    @pytest.mark.asyncio
+    async def test_approval_with_missing_request(self, client, mock_bot):
         """Test approval when request doesn't exist.
 
         Verifies:
@@ -319,14 +311,15 @@ class TestApprovalFlow:
         assert response.status_code == 200
 
         # Verify no requests exist in database
-        db = SessionLocal()
-        try:
-            all_requests = db.query(AccessRequest).all()
-            assert len(all_requests) == 0
-        finally:
-            db.close()
+        from sqlalchemy import select
 
-    def test_approval_timing_sla(self, client, mock_bot):
+        async with AsyncSessionLocal() as db:
+            result = await db.execute(select(AccessRequest))
+            all_requests = result.scalars().all()
+            assert len(all_requests) == 0
+
+    @pytest.mark.asyncio
+    async def test_approval_timing_sla(self, client, mock_bot):
         """Test that approval response meets timing SLA (< 5 seconds).
 
         Verifies:
@@ -353,16 +346,14 @@ class TestApprovalFlow:
         assert response.status_code == 200
 
         # Get request ID
-        db = SessionLocal()
-        try:
-            stored_request = (
-                db.query(AccessRequest)
-                .filter(AccessRequest.user_telegram_id == str(client_id))
-                .first()
+        from sqlalchemy import select
+
+        async with AsyncSessionLocal() as db:
+            result = await db.execute(
+                select(AccessRequest).where(AccessRequest.user_telegram_id == client_id)
             )
+            stored_request = result.scalar_one_or_none()
             request_id = stored_request.id
-        finally:
-            db.close()
 
         # Step 2: Measure approval response time
         start_time = datetime.now(timezone.utc)
@@ -392,7 +383,8 @@ class TestApprovalFlow:
         print(f"Approval response time: {elapsed_time:.3f} seconds (SLA: 5s)")
         assert elapsed_time < 5.0
 
-    def test_approval_idempotency(self, client, mock_bot):
+    @pytest.mark.asyncio
+    async def test_approval_idempotency(self, client, mock_bot):
         """Test that approving the same request twice doesn't cause issues.
 
         Verifies:
@@ -405,19 +397,18 @@ class TestApprovalFlow:
         request_message = "Idempotency test"
 
         # Create and approve request once
-        db = SessionLocal()
-        try:
+        from sqlalchemy import select
+
+        async with AsyncSessionLocal() as db:
             request = AccessRequest(
                 user_telegram_id=str(client_id),
                 request_message=request_message,
                 status=RequestStatus.PENDING,
             )
             db.add(request)
-            db.commit()
-            db.refresh(request)
+            await db.commit()
+            await db.refresh(request)
             request_id = request.id
-        finally:
-            db.close()
 
         # First approval via callback
         admin_update_1 = {
@@ -441,12 +432,10 @@ class TestApprovalFlow:
         assert response1.status_code == 200
 
         # Verify approved
-        db = SessionLocal()
-        try:
-            req = db.query(AccessRequest).filter(AccessRequest.id == request_id).first()
+        async with AsyncSessionLocal() as db:
+            result = await db.execute(select(AccessRequest).where(AccessRequest.id == request_id))
+            req = result.scalar_one_or_none()
             assert req.status == RequestStatus.APPROVED
-        finally:
-            db.close()
 
         # Second approval attempt via callback (idempotent)
         mock_bot.reset_mock()
@@ -471,9 +460,7 @@ class TestApprovalFlow:
         assert response2.status_code == 200
 
         # Verify still approved
-        db = SessionLocal()
-        try:
-            req = db.query(AccessRequest).filter(AccessRequest.id == request_id).first()
+        async with AsyncSessionLocal() as db:
+            result = await db.execute(select(AccessRequest).where(AccessRequest.id == request_id))
+            req = result.scalar_one_or_none()
             assert req.status == RequestStatus.APPROVED
-        finally:
-            db.close()

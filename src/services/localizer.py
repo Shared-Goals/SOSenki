@@ -10,11 +10,9 @@ Translation Key Naming Convention (Flat Structure with Prefixes):
     - err_*         Error messages (err_invalid_number, err_not_authorized)
     - status_*      State labels (status_open, status_closed, status_pending)
     - empty_*       Empty state messages (empty_bills, empty_transactions)
-    - nav_*         Navigation labels (nav_balance, nav_invest)
     - hint_*        Helper text (hint_previous_value)
     - title_*       Section headers (title_existing_periods)
     - label_*       Generic labels (label_weight, label_tenant)
-    - action_*      Action button labels (action_new_period, action_close_period)
 
 Domain Suffix Convention:
     Add domain-specific suffix only when ambiguous (Option C).

@@ -80,6 +80,20 @@ class UserService:
         result = await self.session.execute(select(User).where(User.telegram_id == telegram_id))
         return result.scalar_one_or_none()
 
+    async def get_active_user_by_telegram_id(self, telegram_id: int) -> Optional[User]:
+        """Get active user by Telegram ID.
+
+        Args:
+            telegram_id: Telegram user ID
+
+        Returns:
+            User if found and is_active=True, None otherwise
+        """
+        user = await self.get_by_telegram_id(telegram_id)
+        if user and user.is_active:
+            return user
+        return None
+
     async def can_access_mini_app(self, telegram_id: int) -> bool:
         """
         Check if user can access Mini App (PRIMARY access gate).
@@ -259,29 +273,4 @@ class UserStatusService:
         return await self.session.get(User, user.representative_id)
 
 
-class UserServiceSync:
-    """Sync service for user operations (used by bot handlers with sync Session)."""
-
-    def __init__(self, db_session):
-        """Initialize with sync database session."""
-        from sqlalchemy.orm import Session
-
-        self.db: Session = db_session
-
-    def get_active_user_by_telegram_id(self, telegram_id: int) -> Optional[User]:
-        """Get active user by Telegram ID.
-
-        Args:
-            telegram_id: Telegram user ID
-
-        Returns:
-            User if found and is_active=True, None otherwise
-        """
-        result = self.db.execute(select(User).where(User.telegram_id == telegram_id))
-        user = result.scalar_one_or_none()
-        if user and user.is_active:
-            return user
-        return None
-
-
-__all__ = ["UserService", "UserStatusService", "UserServiceSync"]
+__all__ = ["UserService", "UserStatusService"]

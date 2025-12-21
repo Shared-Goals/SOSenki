@@ -3,9 +3,10 @@
 import logging
 
 from sqlalchemy import select
-from sqlalchemy.orm import Session
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.models import AccessRequest, RequestStatus
+from src.services.audit_service import AuditService
 
 logger = logging.getLogger(__name__)
 
@@ -13,11 +14,14 @@ logger = logging.getLogger(__name__)
 class RequestService:
     """Service for managing client requests."""
 
-    def __init__(self, db_session: Session):
-        self.db = db_session
+    def __init__(self, session: AsyncSession):
+        self.session = session
 
     async def create_request(
-        self, user_telegram_id: int, request_message: str, user_telegram_username: str | None = None
+        self,
+        user_telegram_id: int,
+        request_message: str,
+        user_telegram_username: str | None = None,
     ) -> AccessRequest | None:
         """Create a new request from a client.
 
@@ -34,12 +38,12 @@ class RequestService:
             Created AccessRequest or None if validation fails (duplicate pending request)
         """
         # T028: Check for existing PENDING request from this client
-        existing_pending = self.db.execute(
-            select(AccessRequest).where(
-                AccessRequest.user_telegram_id == user_telegram_id,
-                AccessRequest.status == RequestStatus.PENDING,
-            )
-        ).scalar_one_or_none()
+        stmt = select(AccessRequest).where(
+            AccessRequest.user_telegram_id == user_telegram_id,
+            AccessRequest.status == RequestStatus.PENDING,
+        )
+        result = await self.session.execute(stmt)
+        existing_pending = result.scalar_one_or_none()
 
         if existing_pending:
             # Client already has a pending request
@@ -54,9 +58,25 @@ class RequestService:
             status=RequestStatus.PENDING,
         )
 
-        self.db.add(new_request)
-        self.db.commit()
-        self.db.refresh(new_request)
+        self.session.add(new_request)
+        await self.session.flush()  # Get ID
+
+        # Audit log (no actor_id - user-initiated, not admin action)
+        await AuditService.log(
+            session=self.session,
+            entity_type="access_request",
+            entity_id=new_request.id,
+            action="create",
+            actor_id=None,
+            changes={
+                "user_telegram_id": user_telegram_id,
+                "user_telegram_username": user_telegram_username,
+                "status": "pending",
+            },
+        )
+
+        await self.session.commit()
+        await self.session.refresh(new_request)
 
         return new_request
 
@@ -70,12 +90,12 @@ class RequestService:
             Pending AccessRequest or None if not found
         """
         # T039: Query database for status=pending request from this client
-        return self.db.execute(
-            select(AccessRequest).where(
-                AccessRequest.user_telegram_id == user_telegram_id,
-                AccessRequest.status == RequestStatus.PENDING,
-            )
-        ).scalar_one_or_none()
+        stmt = select(AccessRequest).where(
+            AccessRequest.user_telegram_id == user_telegram_id,
+            AccessRequest.status == RequestStatus.PENDING,
+        )
+        result = await self.session.execute(stmt)
+        return result.scalar_one_or_none()
 
     async def get_request_by_id(self, request_id: int) -> AccessRequest | None:
         """Get request by ID.
@@ -86,9 +106,9 @@ class RequestService:
         Returns:
             AccessRequest or None if not found
         """
-        return self.db.execute(
-            select(AccessRequest).where(AccessRequest.id == request_id)
-        ).scalar_one_or_none()
+        stmt = select(AccessRequest).where(AccessRequest.id == request_id)
+        result = await self.session.execute(stmt)
+        return result.scalar_one_or_none()
 
     async def update_request_status(
         self,
@@ -109,9 +129,10 @@ class RequestService:
             True if successful, False otherwise
         """
         # T040: Query, update status and admin details, commit
-        request = self.db.execute(
+        result = await self.session.execute(
             select(AccessRequest).where(AccessRequest.id == request_id)
-        ).scalar_one_or_none()
+        )
+        request = result.scalar_one_or_none()
 
         if not request:
             return False
@@ -121,7 +142,7 @@ class RequestService:
         request.admin_response = admin_response
         # updated_at is auto-managed by ORM
 
-        self.db.commit()
+        await self.session.commit()
         return True
 
 

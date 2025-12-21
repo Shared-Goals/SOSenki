@@ -12,6 +12,7 @@ from src.models.bill import Bill, BillType
 from src.models.property import Property
 from src.models.service_period import ServicePeriod
 from src.models.user import User
+from src.services.audit_service import AuditService
 
 logger = logging.getLogger(__name__)
 
@@ -77,6 +78,23 @@ class BillsService:
                     bill_amount=share.calculated_bill_amount,
                 )
                 self.session.add(bill)
+                await self.session.flush()  # Get bill ID
+
+                # Audit log
+                await AuditService.log(
+                    session=self.session,
+                    entity_type="bill",
+                    entity_id=bill.id,
+                    action="create",
+                    actor_id=actor_id,
+                    changes={
+                        "bill_type": "shared_electricity",
+                        "account_id": account.id,
+                        "account_name": account.name,
+                        "period_id": period_id,
+                        "amount": float(share.calculated_bill_amount),
+                    },
+                )
                 bills_created += 1
 
         await self.session.commit()
@@ -231,6 +249,23 @@ class BillsService:
                     bill_amount=amount,
                 )
                 self.session.add(bill)
+                await self.session.flush()  # Get bill ID
+
+                # Audit log
+                await AuditService.log(
+                    session=self.session,
+                    entity_type="bill",
+                    entity_id=bill.id,
+                    action="create",
+                    actor_id=actor_id,
+                    changes={
+                        "bill_type": "main",
+                        "account_id": account.id,
+                        "account_name": account.name,
+                        "period_id": period_id,
+                        "amount": float(amount),
+                    },
+                )
                 bills_created += 1
 
         await self.session.commit()
@@ -286,6 +321,23 @@ class BillsService:
                     bill_amount=amount,
                 )
                 self.session.add(bill)
+                await self.session.flush()  # Get bill ID
+
+                # Audit log
+                await AuditService.log(
+                    session=self.session,
+                    entity_type="bill",
+                    entity_id=bill.id,
+                    action="create",
+                    actor_id=actor_id,
+                    changes={
+                        "bill_type": "conservation",
+                        "account_id": account.id,
+                        "account_name": account.name,
+                        "period_id": period_id,
+                        "amount": float(amount),
+                    },
+                )
                 bills_created += 1
 
         await self.session.commit()

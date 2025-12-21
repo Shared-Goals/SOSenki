@@ -1701,7 +1701,7 @@ function renderProperties(properties) {
             linkEl.href = property.photo_link;
             linkEl.target = '_blank';
             linkEl.rel = 'noopener noreferrer';
-            linkEl.textContent = t('nav_view_photos');
+            linkEl.textContent = t('label_view_photos');
             photoLinkEl.appendChild(linkEl);
             info.appendChild(photoLinkEl);
         }

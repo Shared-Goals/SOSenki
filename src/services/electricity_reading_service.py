@@ -127,9 +127,9 @@ class ElectricityReadingService:
         await self.session.flush()  # Ensure ID is assigned
 
         # Audit log
-        AuditService.log(
-            db=self.session,
-            entity_type="ElectricityReading",
+        await AuditService.log(
+            session=self.session,
+            entity_type="electricity_reading",
             entity_id=reading.id,
             action="create",
             actor_id=actor_id,
@@ -219,9 +219,9 @@ class ElectricityReadingService:
 
         # Audit log if there were changes
         if changes and actor_id:
-            AuditService.log(
-                db=self.session,
-                entity_type="ElectricityReading",
+            await AuditService.log(
+                session=self.session,
+                entity_type="electricity_reading",
                 entity_id=reading.id,
                 action="update",
                 actor_id=actor_id,
@@ -252,9 +252,9 @@ class ElectricityReadingService:
         }
 
         # Audit log before deletion
-        AuditService.log(
-            db=self.session,
-            entity_type="ElectricityReading",
+        await AuditService.log(
+            session=self.session,
+            entity_type="electricity_reading",
             entity_id=reading.id,
             action="delete",
             actor_id=actor_id,

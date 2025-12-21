@@ -1,9 +1,9 @@
 """Unit tests for admin_service with expanded coverage."""
 
-from unittest.mock import MagicMock
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
-from sqlalchemy.orm import Session
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.models.access_request import AccessRequest, RequestStatus
 from src.models.user import User
@@ -13,7 +13,7 @@ from src.services.admin_service import AdminService
 @pytest.fixture
 def mock_db_session():
     """Create a mock database session."""
-    return MagicMock(spec=Session)
+    return AsyncMock(spec=AsyncSession)
 
 
 @pytest.fixture
@@ -42,8 +42,15 @@ class TestAdminServiceApprove:
             request_message="Help",
             status=RequestStatus.PENDING,
         )
-        mock_db_session.query.return_value.filter.return_value.first.return_value = request
-        mock_db_session.execute.return_value.scalar_one_or_none.return_value = None
+        mock_result = MagicMock()
+        mock_result.scalar_one_or_none.return_value = request
+        mock_db_session.execute = AsyncMock(return_value=mock_result)
+
+        mock_user_result = MagicMock()
+        mock_user_result.scalar_one_or_none.return_value = None
+        mock_db_session.execute = AsyncMock(side_effect=[mock_result, mock_user_result])
+        mock_db_session.flush = AsyncMock()
+        mock_db_session.commit = AsyncMock()
 
         result = await admin_service.approve_request(1, admin_user)
 
@@ -65,11 +72,12 @@ class TestAdminServiceApprove:
         )
         user = User(id=5, name="John", is_active=False)
 
-        mock_db_session.query.return_value.filter.return_value.first.side_effect = [
-            request,
-            user,
-        ]
-        mock_db_session.commit = MagicMock()
+        mock_result = MagicMock()
+        mock_result.scalar_one_or_none.return_value = request
+        mock_db_session.execute = AsyncMock(return_value=mock_result)
+        mock_db_session.get = AsyncMock(return_value=user)
+        mock_db_session.flush = AsyncMock()
+        mock_db_session.commit = AsyncMock()
 
         result = await admin_service.approve_request(1, admin_user, selected_user_id=5)
 
@@ -81,7 +89,9 @@ class TestAdminServiceApprove:
     @pytest.mark.asyncio
     async def test_approve_request_not_found(self, admin_service, mock_db_session, admin_user):
         """Test approval fails for non-existent request."""
-        mock_db_session.query.return_value.filter.return_value.first.return_value = None
+        mock_result = MagicMock()
+        mock_result.scalar_one_or_none.return_value = None
+        mock_db_session.execute = AsyncMock(return_value=mock_result)
 
         result = await admin_service.approve_request(999, admin_user)
 
@@ -99,10 +109,10 @@ class TestAdminServiceApprove:
             request_message="Help",
             status=RequestStatus.PENDING,
         )
-        mock_db_session.query.return_value.filter.return_value.first.side_effect = [
-            request,
-            None,
-        ]
+        mock_result = MagicMock()
+        mock_result.scalar_one_or_none.return_value = request
+        mock_db_session.execute = AsyncMock(return_value=mock_result)
+        mock_db_session.get = AsyncMock(return_value=None)
 
         result = await admin_service.approve_request(1, admin_user, selected_user_id=999)
 
@@ -120,22 +130,27 @@ class TestAdminServiceApprove:
             request_message="Help",
             status=RequestStatus.PENDING,
         )
-        mock_db_session.query.return_value.filter.return_value.first.return_value = request
-        mock_db_session.execute.return_value.scalar_one_or_none.return_value = None
+        mock_req_result = MagicMock()
+        mock_req_result.scalar_one_or_none.return_value = request
+        mock_user_result = MagicMock()
+        mock_user_result.scalar_one_or_none.return_value = None
+        mock_db_session.execute = AsyncMock(side_effect=[mock_req_result, mock_user_result])
+        mock_db_session.flush = AsyncMock()
+        mock_db_session.commit = AsyncMock()
 
         result = await admin_service.approve_request(1, admin_user)
 
         assert result is not None
-        mock_db_session.add.assert_called_once()
+        # Two adds: one for User, one for AuditLog
+        assert mock_db_session.add.call_count == 2
 
     @pytest.mark.asyncio
     async def test_approve_request_exception_handling(
         self, admin_service, mock_db_session, admin_user
     ):
         """Test approval handles exceptions gracefully."""
-        mock_db_session.query.return_value.filter.return_value.first.side_effect = Exception(
-            "DB Error"
-        )
+        mock_db_session.execute = AsyncMock(side_effect=Exception("DB Error"))
+        mock_db_session.rollback = AsyncMock()
 
         result = await admin_service.approve_request(1, admin_user)
 
@@ -155,8 +170,11 @@ class TestAdminServiceReject:
             request_message="Help",
             status=RequestStatus.PENDING,
         )
-        mock_db_session.query.return_value.filter.return_value.first.return_value = request
-        mock_db_session.commit = MagicMock()
+        mock_result = MagicMock()
+        mock_result.scalar_one_or_none.return_value = request
+        mock_db_session.execute = AsyncMock(return_value=mock_result)
+        mock_db_session.flush = AsyncMock()
+        mock_db_session.commit = AsyncMock()
 
         result = await admin_service.reject_request(1, admin_user)
 
@@ -167,7 +185,9 @@ class TestAdminServiceReject:
     @pytest.mark.asyncio
     async def test_reject_request_not_found(self, admin_service, mock_db_session, admin_user):
         """Test rejection fails for non-existent request."""
-        mock_db_session.query.return_value.filter.return_value.first.return_value = None
+        mock_result = MagicMock()
+        mock_result.scalar_one_or_none.return_value = None
+        mock_db_session.execute = AsyncMock(return_value=mock_result)
 
         result = await admin_service.reject_request(999, admin_user)
 
@@ -178,9 +198,8 @@ class TestAdminServiceReject:
         self, admin_service, mock_db_session, admin_user
     ):
         """Test rejection handles exceptions gracefully."""
-        mock_db_session.query.return_value.filter.return_value.first.side_effect = Exception(
-            "DB Error"
-        )
+        mock_db_session.execute = AsyncMock(side_effect=Exception("DB Error"))
+        mock_db_session.rollback = AsyncMock()
 
         result = await admin_service.reject_request(1, admin_user)
 

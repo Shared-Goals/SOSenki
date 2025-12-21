@@ -53,7 +53,6 @@ async def get_async_session() -> AsyncGenerator[AsyncSession, None]:
 from src.services.audit_service import AuditService  # noqa: E402
 from src.services.bills_service import BillsService  # noqa: E402
 from src.services.period_service import PeriodDefaults, ServicePeriodService  # noqa: E402
-from src.services.user_service import UserServiceSync  # noqa: E402
 
 __all__ = [
     "engine",
@@ -67,5 +66,4 @@ __all__ = [
     "BillsService",
     "ServicePeriodService",
     "PeriodDefaults",
-    "UserServiceSync",
 ]

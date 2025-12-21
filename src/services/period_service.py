@@ -11,6 +11,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.models.service_period import ServicePeriod
+from src.services.audit_service import AuditService
 
 logger = logging.getLogger(__name__)
 
@@ -236,6 +237,24 @@ class ServicePeriodService:
             period_months=period_months,
         )
         self.session.add(new_period)
+        await self.session.flush()  # Get period ID
+
+        # Audit log
+        await AuditService.log(
+            session=self.session,
+            entity_type="service_period",
+            entity_id=new_period.id,
+            action="create",
+            actor_id=actor_id,
+            changes={
+                "name": name,
+                "start_date": start_date.isoformat(),
+                "end_date": end_date.isoformat(),
+                "period_months": period_months,
+                "status": "open",
+            },
+        )
+
         await self.session.commit()
         await self.session.refresh(new_period)
 
@@ -285,6 +304,22 @@ class ServicePeriodService:
         period.electricity_rate = electricity_rate
         period.electricity_losses = electricity_losses
 
+        # Audit log
+        await AuditService.log(
+            session=self.session,
+            entity_type="service_period",
+            entity_id=period.id,
+            action="update",
+            actor_id=actor_id,
+            changes={
+                "electricity_start": str(electricity_start),
+                "electricity_end": str(electricity_end),
+                "electricity_multiplier": str(electricity_multiplier),
+                "electricity_rate": str(electricity_rate),
+                "electricity_losses": str(electricity_losses),
+            },
+        )
+
         await self.session.commit()
 
         logger.info(
@@ -325,6 +360,19 @@ class ServicePeriodService:
         period.year_budget = year_budget
         period.conservation_year_budget = conservation_year_budget
 
+        # Audit log
+        await AuditService.log(
+            session=self.session,
+            entity_type="service_period",
+            entity_id=period.id,
+            action="update",
+            actor_id=actor_id,
+            changes={
+                "year_budget": str(year_budget),
+                "conservation_year_budget": str(conservation_year_budget),
+            },
+        )
+
         await self.session.commit()
 
         logger.info(
@@ -356,6 +404,20 @@ class ServicePeriodService:
             return False
 
         period.status = "closed"
+
+        # Audit log
+        await AuditService.log(
+            session=self.session,
+            entity_type="service_period",
+            entity_id=period.id,
+            action="close",
+            actor_id=actor_id,
+            changes={
+                "status": "closed",
+                "period_name": period.name,
+            },
+        )
+
         await self.session.commit()
 
         logger.info(

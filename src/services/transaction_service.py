@@ -16,6 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.models.account import Account, AccountType
 from src.models.transaction import Transaction
+from src.services.audit_service import AuditService
 from src.services.balance_service import BalanceCalculationService
 from src.services.locale_service import format_currency
 
@@ -164,6 +165,7 @@ class TransactionService:
         to_account_id: int,
         amount: Decimal,
         description: str,
+        actor_id: int | None = None,
     ) -> Transaction:
         """Create a new transaction with validation.
 
@@ -172,6 +174,7 @@ class TransactionService:
             to_account_id: Destination account ID
             amount: Transaction amount (must be positive)
             description: Transaction description
+            actor_id: User ID performing the action (for audit logging)
 
         Returns:
             Created Transaction object
@@ -207,6 +210,23 @@ class TransactionService:
 
         self.session.add(transaction)
         await self.session.flush()  # Get ID without committing
+
+        # Audit log
+        await AuditService.log(
+            session=self.session,
+            entity_type="transaction",
+            entity_id=transaction.id,
+            action="create",
+            actor_id=actor_id,
+            changes={
+                "from_account_id": from_account_id,
+                "from_account_name": from_account.name,
+                "to_account_id": to_account_id,
+                "to_account_name": to_account.name,
+                "amount": float(amount),
+                "description": description,
+            },
+        )
 
         logger.info(
             "Transaction created: from=%d to=%d amount=%s description='%s'",

@@ -1,6 +1,8 @@
 """Audit service for logging entity lifecycle events."""
 
-from sqlalchemy.orm import Session
+from typing import Any
+
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.models.audit_log import AuditLog
 
@@ -12,26 +14,26 @@ class AuditService:
     """
 
     @staticmethod
-    def log(
-        db: Session,
+    async def log(
+        session: AsyncSession,
         entity_type: str,
         entity_id: int,
         action: str,
         actor_id: int | None = None,
-        changes: dict | None = None,
+        changes: dict[str, Any] | None = None,
     ) -> AuditLog:
-        """Create audit log entry (one-liner).
+        """Create audit log entry (async).
 
         Args:
-            db: Database session
-            entity_type: Type of entity ("period", "bill", etc.)
+            session: Async database session
+            entity_type: Type of entity (lowercase: "transaction", "bill", "period", etc.)
             entity_id: Primary key of the entity
-            action: Action performed ("create", "close", etc.)
-            actor_id: User (admin) who performed the action (optional)
+            action: Action performed (present tense: "create", "update", "delete", "close", etc.)
+            actor_id: User (admin) who performed the action (required for user-initiated operations)
             changes: Optional JSON snapshot of changed fields
 
         Returns:
-            Created AuditLog object
+            Created AuditLog object (not yet committed)
         """
         audit = AuditLog(
             entity_type=entity_type,
@@ -40,7 +42,7 @@ class AuditService:
             actor_id=actor_id,
             changes=changes,
         )
-        db.add(audit)
+        session.add(audit)
         return audit
 
 

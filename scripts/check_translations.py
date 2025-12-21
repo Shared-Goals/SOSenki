@@ -144,7 +144,7 @@ def check_translations():  # noqa: C901
     print("=" * 60)
     print(f"📍 Single source of truth: {ru_json_path.relative_to(project_root)}")
     print(
-        "📚 Flat structure with prefixes: btn_, prompt_, msg_, err_, status_, empty_, nav_, hint_, title_, label_, action_"
+        "📚 Flat structure with prefixes: btn_, prompt_, msg_, err_, status_, empty_, hint_, title_, label_"
     )
     print("=" * 60)
 

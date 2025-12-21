@@ -218,7 +218,7 @@ class TestMeterWorkflow:
 
             # Check audit log was created
             stmt = select(AuditLog).where(
-                AuditLog.entity_type == "ElectricityReading",
+                AuditLog.entity_type == "electricity_reading",
                 AuditLog.action == "create",
             )
             result = db.execute(stmt)
@@ -338,7 +338,7 @@ class TestMeterWorkflow:
 
             # Check audit log for update
             stmt = select(AuditLog).where(
-                AuditLog.entity_type == "ElectricityReading",
+                AuditLog.entity_type == "electricity_reading",
                 AuditLog.action == "update",
                 AuditLog.entity_id == reading_id,
             )
@@ -431,7 +431,7 @@ class TestMeterWorkflow:
 
             # Check audit log for deletion
             stmt = select(AuditLog).where(
-                AuditLog.entity_type == "ElectricityReading",
+                AuditLog.entity_type == "electricity_reading",
                 AuditLog.action == "delete",
             )
             result = db.execute(stmt)
@@ -506,7 +506,6 @@ class TestMeterWorkflow:
         )
         from src.bot.handlers.admin_meter import (
             handle_date_input,
-            handle_final_confirmation,
             handle_meter_command,
             handle_property_selection,
             handle_value_input,

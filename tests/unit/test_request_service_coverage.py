@@ -1,9 +1,9 @@
 """Unit tests for request_service with expanded coverage."""
 
-from unittest.mock import MagicMock
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
-from sqlalchemy.orm import Session
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.models import AccessRequest, RequestStatus
 from src.services.request_service import RequestService
@@ -12,7 +12,7 @@ from src.services.request_service import RequestService
 @pytest.fixture
 def mock_db_session():
     """Create a mock database session."""
-    return MagicMock(spec=Session)
+    return AsyncMock(spec=AsyncSession)
 
 
 @pytest.fixture
@@ -27,15 +27,18 @@ class TestRequestServiceCreate:
     @pytest.mark.asyncio
     async def test_create_request_success(self, request_service, mock_db_session):
         """Test successful request creation."""
-        mock_db_session.execute.return_value.scalar_one_or_none.return_value = None
-        mock_db_session.add = MagicMock()
-        mock_db_session.commit = MagicMock()
-        mock_db_session.refresh = MagicMock()
+        mock_result = MagicMock()
+        mock_result.scalar_one_or_none.return_value = None
+        mock_db_session.execute = AsyncMock(return_value=mock_result)
+        mock_db_session.flush = AsyncMock()
+        mock_db_session.commit = AsyncMock()
+        mock_db_session.refresh = AsyncMock()
 
         result = await request_service.create_request("123", "Help needed", "testuser")
 
         assert result is not None
-        mock_db_session.add.assert_called_once()
+        # Two adds: one for AccessRequest, one for AuditLog
+        assert mock_db_session.add.call_count == 2
         mock_db_session.commit.assert_called_once()
 
     @pytest.mark.asyncio
@@ -46,7 +49,9 @@ class TestRequestServiceCreate:
             request_message="Existing",
             status=RequestStatus.PENDING,
         )
-        mock_db_session.execute.return_value.scalar_one_or_none.return_value = existing_request
+        mock_result = MagicMock()
+        mock_result.scalar_one_or_none.return_value = existing_request
+        mock_db_session.execute = AsyncMock(return_value=mock_result)
 
         result = await request_service.create_request("123", "New request")
 
@@ -56,12 +61,17 @@ class TestRequestServiceCreate:
     @pytest.mark.asyncio
     async def test_create_request_no_username(self, request_service, mock_db_session):
         """Test request creation without username."""
-        mock_db_session.execute.return_value.scalar_one_or_none.return_value = None
+        mock_result = MagicMock()
+        mock_result.scalar_one_or_none.return_value = None
+        mock_db_session.execute = AsyncMock(return_value=mock_result)
+        mock_db_session.flush = AsyncMock()
+        mock_db_session.commit = AsyncMock()
 
         result = await request_service.create_request("123", "Help needed")
 
         assert result is not None
-        mock_db_session.add.assert_called_once()
+        # Two adds: one for AccessRequest, one for AuditLog
+        assert mock_db_session.add.call_count == 2
 
 
 class TestRequestServiceGet:
@@ -76,7 +86,9 @@ class TestRequestServiceGet:
             request_message="Help",
             status=RequestStatus.PENDING,
         )
-        mock_db_session.execute.return_value.scalar_one_or_none.return_value = pending_request
+        mock_result = MagicMock()
+        mock_result.scalar_one_or_none.return_value = pending_request
+        mock_db_session.execute = AsyncMock(return_value=mock_result)
 
         result = await request_service.get_pending_request("123")
 
@@ -86,7 +98,9 @@ class TestRequestServiceGet:
     @pytest.mark.asyncio
     async def test_get_pending_request_not_found(self, request_service, mock_db_session):
         """Test getting pending request that doesn't exist."""
-        mock_db_session.execute.return_value.scalar_one_or_none.return_value = None
+        mock_result = MagicMock()
+        mock_result.scalar_one_or_none.return_value = None
+        mock_db_session.execute = AsyncMock(return_value=mock_result)
 
         result = await request_service.get_pending_request("123")
 
@@ -101,7 +115,9 @@ class TestRequestServiceGet:
             request_message="Help",
             status=RequestStatus.PENDING,
         )
-        mock_db_session.execute.return_value.scalar_one_or_none.return_value = existing_request
+        mock_result = MagicMock()
+        mock_result.scalar_one_or_none.return_value = existing_request
+        mock_db_session.execute = AsyncMock(return_value=mock_result)
 
         result = await request_service.get_request_by_id(1)
 
@@ -111,7 +127,9 @@ class TestRequestServiceGet:
     @pytest.mark.asyncio
     async def test_get_request_by_id_not_found(self, request_service, mock_db_session):
         """Test getting request by ID that doesn't exist."""
-        mock_db_session.execute.return_value.scalar_one_or_none.return_value = None
+        mock_result = MagicMock()
+        mock_result.scalar_one_or_none.return_value = None
+        mock_db_session.execute = AsyncMock(return_value=mock_result)
 
         result = await request_service.get_request_by_id(999)
 
@@ -130,7 +148,11 @@ class TestRequestServiceUpdate:
             request_message="Help",
             status=RequestStatus.PENDING,
         )
-        mock_db_session.execute.return_value.scalar_one_or_none.return_value = existing_request
+        mock_result = MagicMock()
+        mock_result.scalar_one_or_none.return_value = existing_request
+        mock_db_session.execute = AsyncMock(return_value=mock_result)
+        mock_db_session.flush = AsyncMock()
+        mock_db_session.commit = AsyncMock()
 
         result = await request_service.update_request_status(
             1, RequestStatus.APPROVED, "admin123", "Approved"
@@ -143,7 +165,9 @@ class TestRequestServiceUpdate:
     @pytest.mark.asyncio
     async def test_update_request_status_not_found(self, request_service, mock_db_session):
         """Test status update fails for non-existent request."""
-        mock_db_session.execute.return_value.scalar_one_or_none.return_value = None
+        mock_result = MagicMock()
+        mock_result.scalar_one_or_none.return_value = None
+        mock_db_session.execute = AsyncMock(return_value=mock_result)
 
         result = await request_service.update_request_status(
             999, RequestStatus.APPROVED, "admin123", "Approved"
@@ -161,7 +185,11 @@ class TestRequestServiceUpdate:
             request_message="Help",
             status=RequestStatus.PENDING,
         )
-        mock_db_session.execute.return_value.scalar_one_or_none.return_value = existing_request
+        mock_result = MagicMock()
+        mock_result.scalar_one_or_none.return_value = existing_request
+        mock_db_session.execute = AsyncMock(return_value=mock_result)
+        mock_db_session.flush = AsyncMock()
+        mock_db_session.commit = AsyncMock()
 
         result = await request_service.update_request_status(1, RequestStatus.REJECTED, "admin123")
 

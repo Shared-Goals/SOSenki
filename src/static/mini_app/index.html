@@ -24,15 +24,15 @@
                 <nav class="menu-grid">
                     <button class="menu-item" data-action="invest" id="invest-item">
                         <span class="menu-icon">📈</span>
-                        <span class="menu-label" data-i18n="nav_invest">Invest</span>
+                        <span class="menu-label" data-i18n="btn_invest">Invest</span>
                     </button>
                     <button class="menu-item" data-action="rule">
                         <span class="menu-icon">📋</span>
-                        <span class="menu-label" data-i18n="nav_rule">Rule</span>
+                        <span class="menu-label" data-i18n="btn_rule">Rule</span>
                     </button>
                     <button class="menu-item" data-action="enjoy">
                         <span class="menu-icon">🧘</span>
-                        <span class="menu-label" data-i18n="nav_enjoy">Enjoy</span>
+                        <span class="menu-label" data-i18n="btn_enjoy">Enjoy</span>
                     </button>
                 </nav>
             </main>
@@ -51,15 +51,15 @@
             
             <!-- Properties Section (owners only) -->
             <section id="properties-container" class="properties-section">
-                <h2 data-i18n="nav_properties">Properties</h2>
+                <h2 data-i18n="title_properties">Properties</h2>
                 <div id="properties-list"></div>
             </section>
 
             <!-- Balance Section (owners only) -->
             <section id="balance-container" class="balance-section">
                 <div class="section-header">
-                    <h2 data-i18n="nav_balance">Balance</h2>
-                    <a href="#" class="view-all-link" onclick="navigateToAccounts(event)" data-i18n="nav_view_all">View all →</a>
+                    <h2 data-i18n="title_balance">Balance</h2>
+                    <a href="#" class="view-all-link" onclick="navigateToAccounts(event)" data-i18n="label_view_all">View all →</a>
                 </div>
                 <div class="balance-value">- 0 ₽</div>
             </section>
@@ -67,15 +67,15 @@
             <!-- Transaction List Section -->
             <section id="transactions-section" class="transactions-section">
                 <div class="section-header">
-                    <h2 data-i18n="nav_transactions">Transactions</h2>
-                    <a href="#" class="view-all-link" onclick="navigateToTransactions(event)" data-i18n="nav_view_all">View all →</a>
+                    <h2 data-i18n="title_transactions">Transactions</h2>
+                    <a href="#" class="view-all-link" onclick="navigateToTransactions(event)" data-i18n="label_view_all">View all →</a>
                 </div>
                 <div id="transactions-list"></div>
             </section>
             
             <!-- Bills Section (all types) -->
             <section id="bills-container" class="bills-section">
-                <h2 data-i18n="nav_bills">Bills</h2>
+                <h2 data-i18n="title_bills">Bills</h2>
                 <div id="bills-list"></div>
             </section>
         </div>
@@ -85,7 +85,7 @@
     <template id="transactions-template">
         <div class="page-container">
             <header class="header">
-                <h1 data-i18n="nav_transactions">Transactions</h1>
+                <h1 data-i18n="title_transactions">Transactions</h1>
             </header>
             
             <main class="transactions-main">
@@ -100,7 +100,7 @@
     <template id="accounts-template">
         <div class="page-container">
             <header class="header">
-                <h1 data-i18n="nav_accounts">Accounts</h1>
+                <h1 data-i18n="title_accounts">Accounts</h1>
             </header>
             
             <main class="accounts-main">
@@ -121,13 +121,13 @@
             <main class="account-details-main">
                 <!-- Balance Section -->
                 <section id="account-balance-container" class="balance-section">
-                    <h2 data-i18n="nav_balance">Balance</h2>
+                    <h2 data-i18n="title_balance">Balance</h2>
                     <div class="balance-value" id="account-balance-value">0 ₽</div>
                 </section>
                 
                 <!-- Transactions Section -->
                 <section id="account-transactions-section" class="transactions-section">
-                    <h2 data-i18n="nav_transactions">Transactions</h2>
+                    <h2 data-i18n="title_transactions">Transactions</h2>
                     <div id="account-transactions-list" class="transactions-list">
                         <!-- Transactions will be rendered here -->
                     </div>
@@ -135,7 +135,7 @@
                 
                 <!-- Bills Section -->
                 <section id="account-bills-section" class="bills-section">
-                    <h2 data-i18n="nav_bills">Bills</h2>
+                    <h2 data-i18n="title_bills">Bills</h2>
                     <div id="account-bills-list" class="bills-list">
                         <!-- Bills will be rendered here -->
                     </div>

@@ -13,37 +13,33 @@ from telegram import Update
 from src.bot import handlers
 from src.models.access_request import AccessRequest
 from src.models.user import User
-from src.services import SessionLocal
+from src.services import AsyncSessionLocal
 
 
 class TestGroupChatRejection:
     """Integration tests for group chat rejection."""
 
     @pytest.fixture(autouse=True)
-    def cleanup_db(self):
+    async def cleanup_db(self):
         """Clean up database before and after each test."""
-        db = SessionLocal()
-        try:
-            db.execute(delete(User).where(User.name.like("User_%")))
-            db.execute(delete(AccessRequest))
-            db.commit()
-        except Exception:
-            db.rollback()
-        finally:
-            db.close()
+        async with AsyncSessionLocal() as db:
+            try:
+                await db.execute(delete(User).where(User.name.like("User_%")))
+                await db.execute(delete(AccessRequest))
+                await db.commit()
+            except Exception:
+                await db.rollback()
 
         yield
 
         # Cleanup after test
-        db = SessionLocal()
-        try:
-            db.execute(delete(User).where(User.name.like("User_%")))
-            db.execute(delete(AccessRequest))
-            db.commit()
-        except Exception:
-            db.rollback()
-        finally:
-            db.close()
+        async with AsyncSessionLocal() as db:
+            try:
+                await db.execute(delete(User).where(User.name.like("User_%")))
+                await db.execute(delete(AccessRequest))
+                await db.commit()
+            except Exception:
+                await db.rollback()
 
     @pytest.fixture
     def mock_context(self):
@@ -82,12 +78,12 @@ class TestGroupChatRejection:
         assert len(response_text) > 10, "Response should be a meaningful message"
 
         # Verify no AccessRequest was created
-        db = SessionLocal()
-        try:
-            pending_requests = db.query(AccessRequest).all()
+        from sqlalchemy import select
+
+        async with AsyncSessionLocal() as db:
+            result = await db.execute(select(AccessRequest))
+            pending_requests = result.scalars().all()
             assert len(pending_requests) == 0, "No request should be created for group chats"
-        finally:
-            db.close()
 
     @pytest.mark.asyncio
     async def test_supergroup_chat_request_rejected(self, mock_context):
@@ -111,12 +107,12 @@ class TestGroupChatRejection:
         update.message.reply_text.assert_called_once()
 
         # Verify no request was created
-        db = SessionLocal()
-        try:
-            pending_requests = db.query(AccessRequest).all()
+        from sqlalchemy import select
+
+        async with AsyncSessionLocal() as db:
+            result = await db.execute(select(AccessRequest))
+            pending_requests = result.scalars().all()
             assert len(pending_requests) == 0
-        finally:
-            db.close()
 
     @pytest.mark.asyncio
     async def test_private_chat_request_accepted(self, mock_context):
@@ -138,10 +134,10 @@ class TestGroupChatRejection:
 
         # Should not have called reply_text with rejection message
         # (it might call with confirmation, but let's just verify request was created)
-        db = SessionLocal()
-        try:
-            pending_requests = db.query(AccessRequest).all()
+        from sqlalchemy import select
+
+        async with AsyncSessionLocal() as db:
+            result = await db.execute(select(AccessRequest))
+            pending_requests = result.scalars().all()
             # Should have created a request (if no other validation failed)
             assert len(pending_requests) <= 1, "Request should be created for private chats"
-        finally:
-            db.close()

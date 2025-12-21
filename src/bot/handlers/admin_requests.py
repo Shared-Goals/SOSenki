@@ -10,7 +10,7 @@ from telegram.ext import ContextTypes
 from src.bot.auth import verify_admin_authorization
 from src.models.access_request import AccessRequest
 from src.models.user import User
-from src.services import SessionLocal
+from src.services import AsyncSessionLocal
 from src.services.admin_service import AdminService
 from src.services.localizer import t
 from src.services.notification_service import NotificationService
@@ -41,9 +41,8 @@ async def _execute_admin_action(
         If successful, error_message is None.
         If failed, request is None and error_message contains the localized error.
     """
-    db = SessionLocal()
-    try:
-        admin_service = AdminService(db)
+    async with AsyncSessionLocal() as session:
+        admin_service = AdminService(session)
 
         if action == "approve":
             request = await admin_service.approve_request(
@@ -70,18 +69,6 @@ async def _execute_admin_action(
             notification_service = NotificationService(context.application)
             await notification_service.send_rejection_message(requester_id=request.user_telegram_id)
             return request, None
-
-    except Exception as e:
-        logger.error(
-            "Error processing admin action %s on request %s: %s",
-            action,
-            request_id,
-            e,
-            exc_info=True,
-        )
-        return None, t("err_processing")
-    finally:
-        db.close()
 
 
 async def handle_admin_response(  # noqa: C901
