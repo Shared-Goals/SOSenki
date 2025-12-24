@@ -1,6 +1,7 @@
 """Payout (transaction) management handlers with conversation state machine."""
 
 import logging
+from datetime import date
 from decimal import Decimal, InvalidOperation
 
 from telegram import (
@@ -19,7 +20,7 @@ from src.services.locale_service import format_currency
 from src.services.localizer import t
 from src.services.notification_service import NotificationService
 from src.services.transaction_service import TransactionService
-from src.utils.parsers import parse_russian_decimal
+from src.utils.parsers import parse_date, parse_russian_decimal
 
 logger = logging.getLogger(__name__)
 
@@ -32,8 +33,9 @@ class States:
     SELECT_FROM = 1
     SELECT_TO = 2
     ENTER_AMOUNT = 3
-    ENTER_DESCRIPTION = 4
-    CONFIRM = 5
+    ENTER_TRANSACTION_DATE = 4
+    ENTER_DESCRIPTION = 5
+    CONFIRM = 6
 
 
 # Context data keys
@@ -42,6 +44,7 @@ _PAYOUT_KEYS = [
     "payout_from_account",
     "payout_to_account",
     "payout_amount",
+    "payout_date",
     "payout_description",
     "authorized_admin",
 ]
@@ -79,6 +82,18 @@ def _build_suggested_amount_keyboard(suggested_amount: int) -> ReplyKeyboardMark
         return None
     return ReplyKeyboardMarkup(
         [[KeyboardButton(text=str(suggested_amount))]],
+        one_time_keyboard=True,
+        resize_keyboard=True,
+    )
+
+
+def _build_suggested_date_keyboard(suggested_date: date | None) -> ReplyKeyboardMarkup | None:
+    """Build a keyboard with suggested date button if available."""
+    if not suggested_date:
+        return None
+    formatted_date = suggested_date.strftime("%d.%m.%Y")
+    return ReplyKeyboardMarkup(
+        [[KeyboardButton(text=formatted_date)]],
         one_time_keyboard=True,
         resize_keyboard=True,
     )
@@ -426,15 +441,64 @@ async def handle_amount_input(update: Update, context: ContextTypes.DEFAULT_TYPE
         # Store amount
         context.user_data["payout_amount"] = amount
 
+        keyboard = _build_suggested_date_keyboard(date.today())
+
+        await update.message.reply_text(
+            t("prompt_enter_transaction_date"),
+            reply_markup=keyboard,
+        )
+
+        return States.ENTER_TRANSACTION_DATE
+
+    except Exception as e:
+        logger.error("Error handling amount input: %s", e, exc_info=True)
+        if update.message:
+            try:
+                await update.message.reply_text(t("err_processing"))
+            except Exception:
+                pass
+        return States.END
+
+
+async def handle_transaction_date_input(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Handle transaction date input and move to description."""
+    try:
+        if not update.message or not update.message.text:
+            logger.warning("Received transaction date input without message or text")
+            return States.END
+
+        text = update.message.text.strip()
+
+        try:
+            transaction_date = parse_date(text)
+            if transaction_date is None:
+                raise ValueError("Empty date")
+        except ValueError:
+            await update.message.reply_text(t("err_invalid_date_format"))
+            return States.ENTER_TRANSACTION_DATE
+
+        if context.user_data is None:
+            logger.warning("Context user_data is None")
+            await update.message.reply_text(t("err_processing"))
+            return States.END
+
+        from_account = context.user_data.get("payout_from_account")
+        to_account = context.user_data.get("payout_to_account")
+        amount = context.user_data.get("payout_amount")
+
+        if not from_account or not to_account or not amount:
+            logger.warning("Transaction data not found in context before date input")
+            await update.message.reply_text(t("err_processing"))
+            return States.END
+
+        context.user_data["payout_date"] = transaction_date
+
         async with AsyncSessionLocal() as session:
             transaction_service = TransactionService(session)
-
-            # Generate suggested description
             suggested_description = transaction_service.generate_description(
                 from_account, to_account, amount
             )
 
-            # Build keyboard with suggested description
             keyboard = _build_suggested_description_keyboard(suggested_description)
 
             await update.message.reply_text(
@@ -445,7 +509,7 @@ async def handle_amount_input(update: Update, context: ContextTypes.DEFAULT_TYPE
             return States.ENTER_DESCRIPTION
 
     except Exception as e:
-        logger.error("Error handling amount input: %s", e, exc_info=True)
+        logger.error("Error handling transaction date input: %s", e, exc_info=True)
         if update.message:
             try:
                 await update.message.reply_text(t("err_processing"))
@@ -479,11 +543,14 @@ async def handle_description_input(update: Update, context: ContextTypes.DEFAULT
         from_account = context.user_data.get("payout_from_account")
         to_account = context.user_data.get("payout_to_account")
         amount = context.user_data.get("payout_amount")
+        transaction_date = context.user_data.get("payout_date")
 
-        if not from_account or not to_account or not amount:
+        if not from_account or not to_account or not amount or not transaction_date:
             logger.warning("Transaction data not found in context")
             await update.message.reply_text(t("err_processing"))
             return States.END
+
+        date_text = transaction_date.strftime("%d.%m.%Y")
 
         # Build confirmation message
         confirmation_text = t(
@@ -492,6 +559,7 @@ async def handle_description_input(update: Update, context: ContextTypes.DEFAULT
             to_name=to_account.name,
             amount=format_currency(amount),
             description=description,
+            date=date_text,
         )
 
         # Build confirmation buttons
@@ -556,9 +624,10 @@ async def handle_confirm(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         to_account = context.user_data.get("payout_to_account")
         amount = context.user_data.get("payout_amount")
         description = context.user_data.get("payout_description")
+        transaction_date = context.user_data.get("payout_date")
         admin_user = context.user_data.get("authorized_admin")
 
-        if not all([from_account, to_account, amount, description, admin_user]):
+        if not all([from_account, to_account, amount, description, transaction_date, admin_user]):
             logger.warning("Transaction data incomplete in context")
             await cq.edit_message_text(t("err_processing"), reply_markup=InlineKeyboardMarkup([]))
             return States.END
@@ -568,6 +637,7 @@ async def handle_confirm(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         assert to_account is not None
         assert amount is not None
         assert description is not None
+        assert transaction_date is not None
         assert admin_user is not None
 
         async with AsyncSessionLocal() as session:
@@ -580,6 +650,7 @@ async def handle_confirm(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
                     to_account_id=to_account.id,
                     amount=amount,
                     description=description,
+                    transaction_date=transaction_date,
                     actor_id=admin_user.id,
                 )
 
@@ -649,6 +720,7 @@ __all__ = [
     "handle_from_selection",
     "handle_to_selection",
     "handle_amount_input",
+    "handle_transaction_date_input",
     "handle_description_input",
     "handle_confirm",
 ]

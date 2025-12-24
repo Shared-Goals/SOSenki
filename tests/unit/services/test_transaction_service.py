@@ -1,3 +1,4 @@
+from datetime import date
 from decimal import Decimal
 
 import pytest
@@ -80,12 +81,14 @@ async def test_create_transaction_success_persists_and_audits(session):
         amount=Decimal("123.45"),
         description="test tx",
         actor_id=42,
+        transaction_date=date(2025, 1, 1),
     )
     await session.commit()
 
     # Transaction stored
     fetched = await session.get(type(tx), tx.id)
     assert fetched is not None and fetched.amount == Decimal("123.45")
+    assert fetched.transaction_date == date(2025, 1, 1)
 
     # Audit log stored
     audit_rows = (await session.execute(select(AuditLog))).scalars().all()
@@ -116,4 +119,26 @@ async def test_create_transaction_missing_account_raises(session):
             to_account_id=1000,
             amount=Decimal("10"),
             description="missing",
+            transaction_date=date(2025, 1, 1),
         )
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_create_transaction_defaults_to_today(session):
+    a1 = Account(name="From", account_type=AccountType.STAFF)
+    a2 = Account(name="To", account_type=AccountType.ORGANIZATION)
+    session.add_all([a1, a2])
+    await session.commit()
+
+    service = TransactionService(session)
+    tx = await service.create_transaction(
+        from_account_id=a1.id,
+        to_account_id=a2.id,
+        amount=Decimal("50"),
+        description="default date",
+        actor_id=5,
+    )
+    await session.commit()
+
+    assert tx.transaction_date == date.today()

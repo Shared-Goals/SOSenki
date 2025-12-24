@@ -49,6 +49,7 @@ from src.bot.handlers.admin_payout import (
 )
 from src.bot.handlers.admin_payout import (
     handle_amount_input,
+    handle_transaction_date_input,
     handle_confirm,
     handle_description_input,
     handle_from_selection,
@@ -267,6 +268,9 @@ async def create_bot_app() -> Application:
             ],
             PayoutStates.ENTER_AMOUNT: [
                 MessageHandler(filters.TEXT & ~filters.COMMAND, handle_amount_input)
+            ],
+            PayoutStates.ENTER_TRANSACTION_DATE: [
+                MessageHandler(filters.TEXT & ~filters.COMMAND, handle_transaction_date_input)
             ],
             PayoutStates.ENTER_DESCRIPTION: [
                 MessageHandler(filters.TEXT & ~filters.COMMAND, handle_description_input)

@@ -11,6 +11,7 @@ import json
 import logging
 import os
 from dataclasses import dataclass
+from datetime import date
 from typing import Any
 
 from ollama import AsyncClient
@@ -20,6 +21,7 @@ from src.services.balance_service import BalanceCalculationService
 from src.services.locale_service import CURRENCY, format_local_datetime
 from src.services.period_service import AsyncServicePeriodService
 from src.services.transaction_service import TransactionService
+from src.utils.parsers import parse_date
 
 logger = logging.getLogger(__name__)
 
@@ -155,11 +157,39 @@ def _create_transaction_tool() -> dict[str, Any]:
                         "type": "string",
                         "description": "Transaction description",
                     },
+                    "transaction_date": {
+                        "type": "string",
+                        "description": "Transaction date (DD.MM.YYYY or YYYY-MM-DD). Defaults to today.",
+                    },
                 },
                 "required": ["from_account_id", "to_account_id", "amount", "description"],
             },
         },
     }
+
+
+def _parse_transaction_date(value: str | None) -> date | None:
+    """Parse a transaction date string supporting DD.MM.YYYY and YYYY-MM-DD."""
+    if not value:
+        return None
+
+    cleaned = value.strip()
+    if not cleaned:
+        return None
+
+    try:
+        parsed = parse_date(cleaned)
+        if parsed:
+            return parsed
+    except ValueError:
+        pass
+
+    try:
+        return date.fromisoformat(cleaned)
+    except ValueError as exc:
+        raise ValueError(
+            "Invalid transaction_date format. Use DD.MM.YYYY or YYYY-MM-DD."
+        ) from exc
 
 
 def get_user_tools() -> list[dict[str, Any]]:
@@ -236,8 +266,14 @@ async def execute_tool(
             to_account_id = arguments.get("to_account_id")
             amount = arguments.get("amount")
             description = arguments.get("description", "")
+            transaction_date = arguments.get("transaction_date")
             return await _execute_create_transaction(
-                ctx, from_account_id, to_account_id, amount, description
+                ctx,
+                from_account_id,
+                to_account_id,
+                amount,
+                description,
+                transaction_date=transaction_date,
             )
         else:
             return json.dumps({"error": f"Unknown tool: {tool_name}"})
@@ -355,6 +391,7 @@ async def _execute_create_transaction(
     to_account_id: int,
     amount: float,
     description: str,
+    transaction_date: str | None = None,
 ) -> str:
     """Execute create_transaction tool (admin only)."""
     if not from_account_id or not to_account_id:
@@ -378,11 +415,19 @@ async def _execute_create_transaction(
         # Create transaction
         from decimal import Decimal
 
+        parsed_transaction_date = None
+        if transaction_date:
+            try:
+                parsed_transaction_date = _parse_transaction_date(transaction_date)
+            except ValueError as exc:  # pragma: no cover - input validation path
+                return json.dumps({"error": str(exc)})
+
         transaction = await service.create_transaction(
             from_account_id=from_account_id,
             to_account_id=to_account_id,
             amount=Decimal(str(amount)),
             description=description,
+            transaction_date=parsed_transaction_date,
         )
 
         return json.dumps(

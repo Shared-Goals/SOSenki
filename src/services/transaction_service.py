@@ -9,6 +9,7 @@ Provides business logic for:
 
 import logging
 import math
+from datetime import date
 from decimal import Decimal
 
 from sqlalchemy import and_, desc, func, select
@@ -166,6 +167,7 @@ class TransactionService:
         amount: Decimal,
         description: str,
         actor_id: int | None = None,
+        transaction_date: date | None = None,
     ) -> Transaction:
         """Create a new transaction with validation.
 
@@ -175,6 +177,7 @@ class TransactionService:
             amount: Transaction amount (must be positive)
             description: Transaction description
             actor_id: User ID performing the action (for audit logging)
+            transaction_date: Date of the transaction (defaults to today)
 
         Returns:
             Created Transaction object
@@ -196,13 +199,13 @@ class TransactionService:
             raise ValueError(f"To account {to_account_id} not found")
 
         # Create transaction
-        from datetime import date
+        resolved_date = transaction_date or date.today()
 
         transaction = Transaction(
             from_account_id=from_account_id,
             to_account_id=to_account_id,
             amount=amount,
-            transaction_date=date.today(),
+            transaction_date=resolved_date,
             description=description,
             budget_item_id=None,
         )
@@ -224,6 +227,7 @@ class TransactionService:
                 "to_account_name": to_account.name,
                 "amount": float(amount),
                 "description": description,
+                "transaction_date": resolved_date.isoformat(),
             },
         )
 

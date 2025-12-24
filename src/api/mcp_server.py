@@ -14,6 +14,7 @@ from src.services.balance_service import BalanceCalculationService
 from src.services.locale_service import CURRENCY, format_local_datetime
 from src.services.period_service import AsyncServicePeriodService
 from src.services.transaction_service import TransactionService
+from src.utils.parsers import parse_date
 
 logger = logging.getLogger(__name__)
 
@@ -309,12 +310,37 @@ async def create_service_period(
         return json.dumps({"error": str(e)})
 
 
+def _parse_tool_transaction_date(value: str | None) -> date | None:
+    """Parse a transaction date string supporting DD.MM.YYYY and YYYY-MM-DD."""
+    if not value:
+        return None
+
+    cleaned = value.strip()
+    if not cleaned:
+        return None
+
+    try:
+        parsed = parse_date(cleaned)
+        if parsed:
+            return parsed
+    except ValueError:
+        pass
+
+    try:
+        return date.fromisoformat(cleaned)
+    except ValueError as exc:
+        raise ValueError(
+            "Invalid transaction_date format. Use DD.MM.YYYY or YYYY-MM-DD."
+        ) from exc
+
+
 @mcp.tool
 async def create_transaction(
     from_account_id: int,
     to_account_id: int,
     amount: float,
     description: str,
+    transaction_date: str | None = None,
 ) -> str:
     """Create a new transaction between accounts.
 
@@ -326,6 +352,7 @@ async def create_transaction(
         to_account_id: Destination account ID
         amount: Transaction amount (must be positive)
         description: Transaction description
+        transaction_date: Optional transaction date (DD.MM.YYYY or YYYY-MM-DD)
 
     Returns:
         JSON string with created transaction details or error message.
@@ -355,11 +382,21 @@ async def create_transaction(
             # Create transaction
             from decimal import Decimal
 
+            parsed_transaction_date = None
+            if transaction_date:
+                try:
+                    parsed_transaction_date = _parse_tool_transaction_date(
+                        transaction_date
+                    )
+                except ValueError as exc:  # pragma: no cover - validation path
+                    return json.dumps({"error": str(exc)})
+
             transaction = await service.create_transaction(
                 from_account_id=from_account_id,
                 to_account_id=to_account_id,
                 amount=Decimal(str(amount)),
                 description=description,
+                transaction_date=parsed_transaction_date,
             )
 
             await session.commit()
